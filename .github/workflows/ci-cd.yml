@@ -45,35 +45,29 @@ jobs:
       run: |
         python -m pytest backend/training/test_pipeline.py
 
-    - name: Set up Dry-Run Environment
+    - name: Run Dry-Run Pipeline Verification
       run: |
-        # Create a mock .env for the dry-run execution
-        echo "ENVIRONMENT=local" > backend/.env
-        echo "DATABASE_URL=sqlite:///retail_ops_dryrun.db" >> backend/.env
-        echo "QUEUE_TYPE=local" >> backend/.env
-        echo "MLFLOW_TRACKING_URI=sqlite:///mlruns_dryrun.db" >> backend/.env
+        if [ -f backend/data/online_retail_II.csv ]; then
+          echo "Raw data found. Running dry-run training verification..."
+          echo "ENVIRONMENT=local" > backend/.env
+          echo "DATABASE_URL=sqlite:///retail_ops_dryrun.db" >> backend/.env
+          echo "QUEUE_TYPE=local" >> backend/.env
+          echo "MLFLOW_TRACKING_URI=sqlite:///mlruns_dryrun.db" >> backend/.env
+          
+          python backend/schema/init_db.py
+          python backend/training/feature_engineering.py --source csv --sample-skus 2 --version v1.0.0-dryrun
+          python backend/training/train.py
+          python backend/training/gate_check.py
+        else
+          echo "Raw dataset CSV not found (gitignored). Skipping dry-run pipeline verification."
+        fi
 
-    - name: Initialize Dry-Run Database
-      run: |
-        python backend/schema/init_db.py
-
-    - name: Dry-Run Feature Engineering (2 SKUs)
-      run: |
-        python backend/training/feature_engineering.py --source csv --sample-skus 2 --version v1.0.0-dryrun
-
-    - name: Dry-Run Training
-      run: |
-        python backend/training/train.py
-
-    - name: Dry-Run Promotion Gating Check
-      run: |
-        python backend/training/gate_check.py
 
   build-and-deploy:
     name: Build Docker and Deploy to GCP Cloud Run
     runs-on: ubuntu-latest
     needs: test-and-validate
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'repository_dispatch' && github.event.action == 'auto_retrain')
+    if: ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'repository_dispatch' && github.event.action == 'auto_retrain')) && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
 
     steps:
     - name: Checkout Code
