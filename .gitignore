@@ -362,3 +362,14 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+*.json
+/secrets/
+
+*.db
+*.sql
+*.csv
+*.xlsx
+.env
+.venv/
+.pytest_cache/
