@@ -1,0 +1,27 @@
+artifact_path: file:D:/tanvi/mlruns/1/models/m-0a39727bfb604c4c961db7ae89ff4a3f/artifacts
+flavors:
+  lightgbm:
+    code: null
+    data: model.lgb
+    lgb_version: 4.6.0
+    model_class: lightgbm.basic.Booster
+    serialization_format: skops
+    skops_trusted_types:
+    - lightgbm.basic.Booster
+    - lightgbm.sklearn.LGBMRegressor
+    - collections.OrderedDict
+    - lightgbm.sklearn.LGBMClassifier
+  python_function:
+    data: model.lgb
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.lightgbm
+    python_version: 3.14.3
+mlflow_version: 3.14.0
+model_id: m-0a39727bfb604c4c961db7ae89ff4a3f
+model_size_bytes: 115430
+model_uuid: m-0a39727bfb604c4c961db7ae89ff4a3f
+prompts: null
+run_id: c043d45126114dc680755b15922b9c2e
+utc_time_created: '2026-07-15 12:12:17.807698'
