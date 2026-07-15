@@ -63,11 +63,27 @@ jobs:
         fi
 
 
+  check-secrets:
+    name: Check if GCP Secrets are Configured
+    runs-on: ubuntu-latest
+    outputs:
+      gcp_secrets_set: ${{ steps.check.outputs.gcp_secrets_set }}
+    steps:
+    - id: check
+      env:
+        GCP_WIP: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      run: |
+        if [ -n "$GCP_WIP" ]; then
+          echo "gcp_secrets_set=true" >> $GITHUB_OUTPUT
+        else
+          echo "gcp_secrets_set=false" >> $GITHUB_OUTPUT
+        fi
+
   build-and-deploy:
     name: Build Docker and Deploy to GCP Cloud Run
     runs-on: ubuntu-latest
-    needs: test-and-validate
-    if: ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'repository_dispatch' && github.event.action == 'auto_retrain')) && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+    needs: [test-and-validate, check-secrets]
+    if: ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'repository_dispatch' && github.event.action == 'auto_retrain')) && needs.check-secrets.outputs.gcp_secrets_set == 'true'
 
     steps:
     - name: Checkout Code
