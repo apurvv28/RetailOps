@@ -25,7 +25,7 @@ def get_mlflow_uri():
         if not os.path.isabs(db_name):
             backend_dir = os.path.dirname(os.path.dirname(__file__))
             db_path = os.path.abspath(os.path.join(backend_dir, db_name))
-            uri = f"sqlite:///{db_path.replace('\\', '/')}"
+            uri = "sqlite:///" + db_path.replace('\\', '/')
     return uri
 
 MLFLOW_TRACKING_URI = get_mlflow_uri()

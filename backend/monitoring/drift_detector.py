@@ -35,7 +35,7 @@ def get_db_url():
         if not os.path.isabs(db_name):
             backend_dir = os.path.dirname(os.path.dirname(__file__))
             db_path = os.path.abspath(os.path.join(backend_dir, db_name))
-            db_url = f"sqlite:///{db_path.replace('\\', '/')}"
+            db_url = "sqlite:///" + db_path.replace('\\', '/')
     return db_url
 
 def simulate_drifted_data(reference_df: pd.DataFrame) -> pd.DataFrame:
