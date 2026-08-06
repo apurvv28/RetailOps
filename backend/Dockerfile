@@ -18,5 +18,5 @@ COPY . .
 # Expose port
 EXPOSE 8080
 
-# Basic placeholder command (FastAPI serving will run this later)
-CMD ["python", "-c", "print('Retail Ops Intelligence Backend ready.')"]
+# Start FastAPI application server with Uvicorn
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
