@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 
 import backend.app.model_loader as model_loader
+from backend.agent.service import AgentService
 from backend.app.schemas import (
     PredictionRequest,
     PredictionResponse,
@@ -33,6 +34,7 @@ else:
     load_dotenv(override=True)
 
 API_KEY = os.getenv("API_KEY", None)
+agent_service = AgentService()
 
 def get_db_url():
     db_url = os.getenv("DATABASE_URL", "sqlite:///retail_ops.db")
@@ -185,12 +187,315 @@ def predict(request: PredictionRequest):
     except Exception as e:
         print(f"Error logging prediction to decision_log: {e}")
 
+    # --------------------------------------------------
+    # PHASE 8: SAVE PREDICTION FEATURE SNAPSHOT
+    # --------------------------------------------------
+
+    if decision_log_id is not None:
+
+        try:
+            conn = get_db_connection()
+            feature_row = input_df.iloc[0]
+
+            if DATABASE_URL.startswith("sqlite:///"):
+
+                cursor = conn.cursor()
+
+                cursor.execute(
+                    """
+                    INSERT INTO prediction_features (
+                        decision_log_id,
+                        sku,
+                        daily_sales_avg_7,
+                        daily_sales_avg_14,
+                        daily_sales_avg_30,
+                        demand_velocity,
+                        day_of_week,
+                        month,
+                        holiday_flag,
+                        simulated_inventory,
+                        inventory_to_sales_ratio,
+                        inventory_to_sales_ratio_7
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        decision_log_id,
+                        sku,
+                        float(feature_row["daily_sales_avg_7"]),
+                        float(feature_row["daily_sales_avg_14"]),
+                        float(feature_row["daily_sales_avg_30"]),
+                        float(feature_row["demand_velocity"]),
+                        int(feature_row["day_of_week"]),
+                        int(feature_row["month"]),
+                        bool(feature_row["holiday_flag"]),
+                        float(feature_row["simulated_inventory"]),
+                        float(feature_row["inventory_to_sales_ratio"]),
+                        float(feature_row["inventory_to_sales_ratio_7"])
+                    )
+                )
+
+                conn.commit()
+                conn.close()
+
+            else:
+
+                query = text(
+                    """
+                    INSERT INTO prediction_features (
+                        decision_log_id,
+                        sku,
+                        daily_sales_avg_7,
+                        daily_sales_avg_14,
+                        daily_sales_avg_30,
+                        demand_velocity,
+                        day_of_week,
+                        month,
+                        holiday_flag,
+                        simulated_inventory,
+                        inventory_to_sales_ratio,
+                        inventory_to_sales_ratio_7
+                    )
+                    VALUES (
+                        :decision_log_id,
+                        :sku,
+                        :daily_sales_avg_7,
+                        :daily_sales_avg_14,
+                        :daily_sales_avg_30,
+                        :demand_velocity,
+                        :day_of_week,
+                        :month,
+                        :holiday_flag,
+                        :simulated_inventory,
+                        :inventory_to_sales_ratio,
+                        :inventory_to_sales_ratio_7
+                    )
+                    """
+                )
+
+                conn.execute(
+                    query,
+                    {
+                        "decision_log_id": decision_log_id,
+                        "sku": sku,
+                        "daily_sales_avg_7": float(feature_row["daily_sales_avg_7"]),
+                        "daily_sales_avg_14": float(feature_row["daily_sales_avg_14"]),
+                        "daily_sales_avg_30": float(feature_row["daily_sales_avg_30"]),
+                        "demand_velocity": float(feature_row["demand_velocity"]),
+                        "day_of_week": int(feature_row["day_of_week"]),
+                        "month": int(feature_row["month"]),
+                        "holiday_flag": bool(feature_row["holiday_flag"]),
+                        "simulated_inventory": float(feature_row["simulated_inventory"]),
+                        "inventory_to_sales_ratio": float(feature_row["inventory_to_sales_ratio"]),
+                        "inventory_to_sales_ratio_7": float(feature_row["inventory_to_sales_ratio_7"])
+                    }
+                )
+
+                conn.commit()
+                conn.close()
+
+            print(
+                f"Phase 8 feature snapshot saved for decision_log_id={decision_log_id}"
+            )
+
+        except Exception as e:
+            print(
+                f"Phase 8 feature snapshot failed: {e}"
+            )
+
+    # return PredictionResponse(
+    #     sku=sku,
+    #     stockout_probability=probability,
+    #     prediction=prediction_flag,
+    #     decision_log_id=decision_log_id,
+    #     top_features=top_features
+    # )
+
+    agent_result = None
+
+    try:
+        # Convert prediction features into a dictionary
+        agent_features = input_df.iloc[0].to_dict()
+
+        # Run Phase 7 AgentService
+        agent_result = agent_service.analyze_prediction(
+            sku=sku,
+            probability=probability,
+            features=agent_features
+        )
+
+        print("\n===== PHASE 7 AGENT =====")
+        print(f"SKU: {sku}")
+        print(f"Probability: {probability}")
+        print(f"Action: {agent_result['action']}")
+        print(f"LLM Status: {agent_result['llm_status']}")
+        print(f"Incidents: {agent_result['incident_count']}")
+        print("=========================\n")
+
+    except Exception as e:
+        print(f"Phase 7 agent execution failed: {e}")
+
+        # Safety fallback
+        agent_result = {
+            "action": "no_action",
+            "explanation": (
+                "Agent execution failed. "
+                "No automated action was triggered."
+            ),
+            "llm_status": "error",
+            "incident_count": 0
+        }
+
+    # --------------------------------------------------
+    # PHASE 7: SAVE AGENT DECISION
+    # --------------------------------------------------
+
+    if agent_result and decision_log_id is not None:
+
+        try:
+            conn = get_db_connection()
+
+            if DATABASE_URL.startswith("sqlite:///"):
+
+                cursor = conn.cursor()
+
+                cursor.execute(
+                    """
+                    INSERT INTO agent_decisions (
+                        decision_log_id,
+                        sku,
+                        stockout_probability,
+                        action,
+                        explanation,
+                        llm_status,
+                        incident_count,
+                        created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        decision_log_id,
+                        sku,
+                        probability,
+                        agent_result["action"],
+                        agent_result["explanation"],
+                        agent_result["llm_status"],
+                        agent_result["incident_count"],
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    )
+                )
+
+                conn.commit()
+                conn.close()
+
+            else:
+
+                query = text(
+                    """
+                    INSERT INTO agent_decisions (
+                        decision_log_id,
+                        sku,
+                        stockout_probability,
+                        action,
+                        explanation,
+                        llm_status,
+                        incident_count,
+                        created_at
+                    )
+                    VALUES (
+                        :decision_log_id,
+                        :sku,
+                        :probability,
+                        :action,
+                        :explanation,
+                        :llm_status,
+                        :incident_count,
+                        :created_at
+                    )
+                    """
+                )
+
+                conn.execute(
+                    query,
+                    {
+                        "decision_log_id": decision_log_id,
+                        "sku": sku,
+                        "probability": probability,
+                        "action": agent_result["action"],
+                        "explanation": agent_result["explanation"],
+                        "llm_status": agent_result["llm_status"],
+                        "incident_count": agent_result["incident_count"],
+                        "created_at": datetime.now()
+                    }
+                )
+
+                conn.commit()
+                conn.close()
+
+        except Exception as e:
+            print(f"Failed to save Phase 7 agent decision: {e}")
+
+    # --------------------------------------------------
+    # PHASE 7: AUTOMATIC ACTION
+    # --------------------------------------------------
+
+    if (
+        agent_result
+        and agent_result.get("action") == "auto_action"
+        and decision_log_id is not None
+    ):
+
+        try:
+
+            print(
+                f"Phase 7 auto_action triggered for SKU {sku}"
+            )
+
+            trigger_alert(
+                AlertRequest(
+                    sku=sku,
+                    decision_log_id=decision_log_id,
+                    reason=(
+                        "Phase 7 Agent detected high stockout risk. "
+                        "Automated operational alert triggered."
+                    )
+                )
+            )
+
+        except Exception as e:
+
+            print(
+                f"Phase 7 automatic alert failed: {e}"
+            )
+
+    # --------------------------------------------------
+    # RETURN PREDICTION + PHASE 7 RESULT
+    # --------------------------------------------------
+
     return PredictionResponse(
         sku=sku,
         stockout_probability=probability,
         prediction=prediction_flag,
         decision_log_id=decision_log_id,
-        top_features=top_features
+        top_features=top_features,
+
+        agent_action=(
+            agent_result.get("action")
+            if agent_result
+            else None
+        ),
+
+        agent_explanation=(
+            agent_result.get("explanation")
+            if agent_result
+            else None
+        ),
+
+        agent_status=(
+            agent_result.get("llm_status")
+            if agent_result
+            else None
+        )
     )
 
 @app.post("/outcomes", response_model=OutcomeResponse, dependencies=[Depends(verify_api_key)])

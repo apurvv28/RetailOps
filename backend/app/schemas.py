@@ -26,6 +26,12 @@ class PredictionResponse(BaseModel):
     decision_log_id: Optional[int] = None
     top_features: List[FeatureContribution] = []
 
+
+    # Phase 7 Agent fields
+    agent_action: Optional[str] = None
+    agent_explanation: Optional[str] = None
+    agent_status: Optional[str] = None
+
 class OutcomeRequest(BaseModel):
     decision_log_id: int
     actual_stockout_occurred: bool

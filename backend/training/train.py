@@ -34,17 +34,21 @@ mlflow.set_experiment("Retail_Ops_Stockout_Risk")
 
 FEATURES_CSV = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "training_features.csv")
 
-def run_training():
-    print(f"Loading engineered training features from {FEATURES_CSV}...")
-    if not os.path.exists(FEATURES_CSV):
-        raise FileNotFoundError(f"Features file not found at {FEATURES_CSV}. Please run Feature Engineering first.")
-        
-    df = pd.read_csv(FEATURES_CSV)
+def run_training(features_csv=FEATURES_CSV):
+    print(f"Loading engineered training features from {features_csv}...")
+    if not os.path.exists(features_csv):
+        raise FileNotFoundError(
+            f"Features file not found at {features_csv}. "
+            "Please run Feature Engineering first."
+        )
+
+    df = pd.read_csv(features_csv)
     print(f"Dataset shape: {df.shape}")
     
     # 1. Prepare Features and Target
     # Convert date to datetime for split
-    df["date"] = pd.to_datetime(df["date"])
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"])
     
     # Compute ratio features
     df["inventory_to_sales_ratio"] = df["simulated_inventory"] / (df["daily_sales_avg_30"] + 1e-5)
@@ -66,14 +70,57 @@ def run_training():
     
     # 2. Time-aware Train/Test Split
     # We use the last 30 days of data for testing/validation
-    max_date = df["date"].max()
-    split_date = max_date - pd.Timedelta(days=30)
+    # max_date = df["date"].max()
+    # split_date = max_date - pd.Timedelta(days=30)
     
-    train_df = df[df["date"] < split_date].copy()
-    test_df = df[df["date"] >= split_date].copy()
+    # train_df = df[df["date"] < split_date].copy()
+    # test_df = df[df["date"] >= split_date].copy()
     
-    print(f"Training period: {train_df['date'].min().strftime('%Y-%m-%d')} to {train_df['date'].max().strftime('%Y-%m-%d')} ({len(train_df)} rows)")
-    print(f"Testing period: {test_df['date'].min().strftime('%Y-%m-%d')} to {test_df['date'].max().strftime('%Y-%m-%d')} ({len(test_df)} rows)")
+    if "date" in df.columns:
+        max_date = df["date"].max()
+        split_date = max_date - pd.Timedelta(days=30)
+
+        train_df = df[df["date"] < split_date].copy()
+        test_df = df[df["date"] >= split_date].copy()
+
+        print(
+            f"Training period: {train_df['date'].min().strftime('%Y-%m-%d')} "
+            f"to {train_df['date'].max().strftime('%Y-%m-%d')} ({len(train_df)} rows)"
+        )
+        print(
+            f"Testing period: {test_df['date'].min().strftime('%Y-%m-%d')} "
+            f"to {test_df['date'].max().strftime('%Y-%m-%d')} ({len(test_df)} rows)"
+        )
+    else:
+        train_df, test_df = train_test_split(
+            df,
+            test_size=0.2,
+            stratify=df[target_col],
+            random_state=42
+        )
+
+        print(
+            f"Feedback retraining split: "
+            f"{len(train_df)} training rows, {len(test_df)} testing rows"
+        )
+
+    # print(f"Training period: {train_df['date'].min().strftime('%Y-%m-%d')} to {train_df['date'].max().strftime('%Y-%m-%d')} ({len(train_df)} rows)")
+    # print(f"Testing period: {test_df['date'].min().strftime('%Y-%m-%d')} to {test_df['date'].max().strftime('%Y-%m-%d')} ({len(test_df)} rows)")
+
+    if "date" in df.columns:
+        print(
+            f"Training period: {train_df['date'].min().strftime('%Y-%m-%d')} "
+            f"to {train_df['date'].max().strftime('%Y-%m-%d')} ({len(train_df)} rows)"
+        )
+        print(
+            f"Testing period: {test_df['date'].min().strftime('%Y-%m-%d')} "
+            f"to {test_df['date'].max().strftime('%Y-%m-%d')} ({len(test_df)} rows)"
+        )
+    else:
+        print(
+            f"Feedback retraining split: "
+            f"{len(train_df)} training rows, {len(test_df)} testing rows"
+        )
     
     X_train, y_train = train_df[feature_cols].copy(), train_df[target_col].copy()
     X_test, y_test = test_df[feature_cols].copy(), test_df[target_col].copy()

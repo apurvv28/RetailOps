@@ -373,3 +373,13 @@ vite.config.ts.timestamp-*
 .env
 .venv/
 .pytest_cache/
+
+# Phase 7 agent runtime data
+backend/agent/chroma_data/
+backend/agent/test_chroma/
+
+# Local test artifacts
+cls
+phase8_test_predictionccls
+# Local MLflow runtime data
+mlruns/
