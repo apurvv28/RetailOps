@@ -4,7 +4,7 @@ import {
   MOCK_SYSTEM_HEALTH, MOCK_METRICS, MOCK_DRIFT_STATUS
 } from '../utils/helpers';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 const API_KEY = import.meta.env.VITE_API_KEY || '';
 
 const api = axios.create({
@@ -55,6 +55,16 @@ api.interceptors.response.use(
       });
     }
 
+    if (url.includes('/actions/alert')) {
+      return Promise.resolve({
+        data: {
+          status: 'success',
+          message: 'Alert processed and dispatched to field ops team.',
+          action_id: Date.now()
+        }
+      });
+    }
+
     return Promise.reject(error);
   }
 );
@@ -77,6 +87,9 @@ export const DashboardService = {
 
   getMetrics: () =>
     api.get('/dashboard/metrics').then(r => r.data),
+
+  triggerAlert: (payload) =>
+    api.post('/actions/alert', payload).then(r => r.data),
 };
 
 export default api;

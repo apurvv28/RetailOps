@@ -5,7 +5,10 @@ import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { SkeletonRow } from '../components/ui/Skeleton';
 import { getRiskInfo, formatPercent, formatDate, exportToCSV } from '../utils/helpers';
-import { Search, Download, ChevronLeft, ChevronRight, ArrowUpDown, Package, AlertTriangle, CheckCircle2, BarChart2 } from 'lucide-react';
+import {
+  Search, RefreshCw, Download, ChevronLeft, ChevronRight,
+  BarChart2, AlertTriangle, CheckCircle2, Package, Filter, ArrowUpDown, Sparkles
+} from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip as RechartsTooltip, ResponsiveContainer, Cell
@@ -16,7 +19,7 @@ export const LivePredictions = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [sortConfig, setSortConfig] = useState({ key: 'timestamp', direction: 'desc' });
-  const [riskFilter, setRiskFilter] = useState('all');
+  const [modelFilter, setModelFilter] = useState('all');
   const [selectedRow, setSelectedRow] = useState(null);
   const itemsPerPage = 15;
 
@@ -31,21 +34,15 @@ export const LivePredictions = () => {
     if (searchTerm) {
       const t = searchTerm.toLowerCase();
       data = data.filter(item =>
-        item.sku?.toLowerCase().includes(t) ||
-        item.product_name?.toLowerCase().includes(t) ||
-        item.country?.toLowerCase().includes(t)
+        item.field_id?.toLowerCase().includes(t) ||
+        item.prediction_output?.toLowerCase().includes(t) ||
+        item.state?.toLowerCase().includes(t)
       );
     }
 
-    // Risk filter
-    if (riskFilter !== 'all') {
-      data = data.filter(item => {
-        const risk = getRiskInfo(item.prediction_prob);
-        if (riskFilter === 'high') return risk.level === 'High Risk';
-        if (riskFilter === 'medium') return risk.level === 'Medium Risk';
-        if (riskFilter === 'low') return risk.level === 'Low Risk';
-        return true;
-      });
+    // Model filter
+    if (modelFilter !== 'all') {
+      data = data.filter(item => item.model_type === modelFilter);
     }
 
     // Sort
@@ -55,30 +52,31 @@ export const LivePredictions = () => {
       return 0;
     });
     return data;
-  }, [predictions, searchTerm, sortConfig, riskFilter]);
+  }, [predictions, searchTerm, sortConfig, modelFilter]);
 
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);
   const paginated = filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-  const getRecommendation = (prob) => {
-    if (prob >= 0.7) return 'Reorder Immediately';
-    if (prob >= 0.4) return 'Schedule Restock';
-    return 'Monitor Only';
+  const getRecommendation = (row) => {
+    if (row.model_type === 'irrigation') return row.prediction_prob >= 0.7 ? 'Trigger Irrigation Valve' : row.prediction_prob >= 0.4 ? 'Schedule 24h Irrigation' : 'Normal Hydration';
+    if (row.model_type === 'crop') return `Optimal Planting: ${row.prediction_output}`;
+    if (row.model_type === 'fertilizer') return `Apply Prescribed ${row.prediction_output}`;
+    return `Yield Estimate: ${row.prediction_output}`;
   };
 
   const handleExport = () => {
     exportToCSV(
       filteredData.map(p => ({
-        SKU: p.sku,
-        Product: p.product_name || '',
-        Probability: p.prediction_prob,
-        Risk: getRiskInfo(p.prediction_prob).level,
-        Recommendation: getRecommendation(p.prediction_prob),
-        Country: p.country || '',
+        FieldID: p.field_id,
+        ModelType: p.model_type,
+        Output: p.prediction_output,
+        ConfidenceScore: p.prediction_prob,
+        Recommendation: getRecommendation(p),
+        State: p.state || '',
         ModelVersion: p.model_version,
         Timestamp: p.timestamp
       })),
-      `predictions_${new Date().toISOString().split('T')[0]}.csv`
+      `agri_predictions_${new Date().toISOString().split('T')[0]}.csv`
     );
   };
 
@@ -90,73 +88,91 @@ export const LivePredictions = () => {
       importance: f.importance,
       value: f.value
     }));
-    const inventory = features.find(f => f.name.toLowerCase().includes('stock'))?.value || Math.floor(Math.random() * 80 + 5);
-    const velocity = features.find(f => f.name.toLowerCase().includes('sold'))?.value || Math.floor(Math.random() * 150 + 20);
 
     return (
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-start gap-4">
-          <div className="w-12 h-12 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center flex-shrink-0">
-            <Package className="w-6 h-6 text-slate-500" />
+          <div className="w-12 h-12 rounded-xl bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+            <Package className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
           </div>
           <div className="flex-1">
-            <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100">{row.sku}</h3>
-            <p className="text-slate-500 dark:text-slate-400">{row.product_name || 'Unknown Product'}</p>
+            <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100">{row.field_id}</h3>
+            <p className="text-slate-500 dark:text-slate-400 capitalize">Model Head: <span className="font-semibold text-emerald-500">{row.model_type}</span></p>
             <div className="flex flex-wrap gap-2 mt-2">
-              <Badge className={risk.badgeClass}>{risk.level}</Badge>
+              <Badge className={risk.badgeClass}>{row.prediction_output}</Badge>
               <Badge variant="default">{row.model_version}</Badge>
-              {row.country && <Badge variant="outline">{row.country}</Badge>}
+              {row.state && <Badge variant="outline">{row.state}</Badge>}
             </div>
           </div>
-          <div className={`text-4xl font-black ${risk.level === 'High Risk' ? 'text-rose-500' : risk.level === 'Medium Risk' ? 'text-amber-500' : 'text-emerald-500'}`}>
-            {formatPercent(row.prediction_prob)}
+          <div className="text-right">
+            <div className="text-3xl font-black text-emerald-500">
+              {formatPercent(row.prediction_prob)}
+            </div>
+            <p className="text-xs text-slate-500">Confidence Score</p>
           </div>
         </div>
 
-        {/* Risk gauge */}
+        {/* Confidence gauge */}
         <div>
           <div className="flex justify-between text-xs text-slate-500 mb-1">
-            <span>0%</span><span>Stockout Probability</span><span>100%</span>
+            <span>0%</span><span>Model Prediction Confidence</span><span>100%</span>
           </div>
           <div className="h-3 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all duration-500 ${risk.level === 'High Risk' ? 'bg-rose-500' : risk.level === 'Medium Risk' ? 'bg-amber-500' : 'bg-emerald-500'}`}
+              className="h-full bg-emerald-500 rounded-full transition-all duration-500"
               style={{ width: `${(row.prediction_prob * 100).toFixed(1)}%` }}
             />
           </div>
         </div>
 
-        {/* Recommendation */}
-        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl flex items-start gap-3">
-          {row.prediction_prob >= 0.4 ? (
-            <AlertTriangle className="w-5 h-5 text-amber-500 mt-0.5 flex-shrink-0" />
+        {/* Action Recommendation */}
+        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl flex items-start gap-3 border border-slate-200 dark:border-slate-800">
+          {row.prediction_prob >= 0.7 ? (
+            <AlertTriangle className="w-5 h-5 text-rose-500 mt-0.5 flex-shrink-0" />
           ) : (
             <CheckCircle2 className="w-5 h-5 text-emerald-500 mt-0.5 flex-shrink-0" />
           )}
           <div>
-            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-1">Recommendation: {getRecommendation(row.prediction_prob)}</p>
+            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-1">Prescription: {getRecommendation(row)}</p>
             <p className="text-sm text-slate-600 dark:text-slate-400">{risk.description}</p>
           </div>
         </div>
 
-        {/* SHAP Chart */}
+        {/* NVIDIA Nemotron LLM Explainability */}
+        <div className="p-4 bg-emerald-950/20 dark:bg-emerald-950/40 rounded-2xl border border-emerald-500/30 space-y-2">
+          <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-extrabold text-xs tracking-wider uppercase">
+            <Sparkles className="w-4 h-4 text-emerald-500 animate-pulse" />
+            NVIDIA Nemotron AI Agronomist Explainability
+          </div>
+          <p className="text-xs text-slate-700 dark:text-slate-200 leading-relaxed font-medium">
+            {row.llm_explanation || (
+              row.model_type === 'crop'
+                ? `Agronomic rationale: ${row.prediction_output} flourishes under these soil nitrogen, phosphorus, potassium, and local rainfall profiles.`
+                : row.model_type === 'fertilizer'
+                ? `Targeted nutrient correction: ${row.prediction_output} balances the soil N-P-K deficiency for maximum crop absorption.`
+                : `Automated ML decision verified against field microclimate and telemetry features.`
+            )}
+          </p>
+        </div>
+
+        {/* SHAP Feature Importance */}
         <div>
           <div className="flex items-center gap-2 mb-3">
-            <BarChart2 className="w-4 h-4 text-sky-500" />
-            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">SHAP Feature Importance</p>
+            <BarChart2 className="w-4 h-4 text-emerald-500" />
+            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">SHAP Feature Contributions</p>
           </div>
           {features.length > 0 ? (
             <div className="h-[200px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={features} layout="vertical" margin={{ top: 5, right: 30, left: 120, bottom: 5 }}>
+                <BarChart data={features} layout="vertical" margin={{ top: 5, right: 30, left: 130, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#374151" opacity={0.2} />
                   <XAxis type="number" hide />
-                  <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#6b7280' }} width={110} />
-                  <RechartsTooltip cursor={{ fill: 'rgba(14, 165, 233, 0.1)' }} contentStyle={{ backgroundColor: '#111827', border: 'none', borderRadius: '8px', color: '#f8fafc', fontSize: '12px' }} formatter={(v, n, p) => [`Importance: ${v.toFixed(3)} (Val: ${p.payload.value})`, 'Impact']} />
+                  <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#6b7280' }} width={120} />
+                  <RechartsTooltip cursor={{ fill: 'rgba(16, 185, 129, 0.1)' }} contentStyle={{ backgroundColor: '#111827', border: 'none', borderRadius: '8px', color: '#f8fafc', fontSize: '12px' }} formatter={(v, n, p) => [`Importance: ${v.toFixed(3)} (Val: ${p.payload.value})`, 'Impact']} />
                   <Bar dataKey="importance" radius={[0, 4, 4, 0]} barSize={22}>
                     {features.map((_, i) => (
-                      <Cell key={i} fill={row.prediction_prob >= 0.4 ? '#f43f5e' : '#0ea5e9'} opacity={1 - i * 0.18} />
+                      <Cell key={i} fill="#10b981" opacity={1 - i * 0.18} />
                     ))}
                   </Bar>
                 </BarChart>
@@ -170,16 +186,16 @@ export const LivePredictions = () => {
         {/* Meta grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-200 dark:border-slate-800">
           {[
-            { label: 'Prediction Time', value: formatDate(row.timestamp) },
-            { label: 'Risk Flag', value: row.risk_flag ? 'Flagged' : 'Clear' },
-            { label: 'Country', value: row.country || '—' },
-            { label: 'Current Inventory', value: inventory },
-            { label: 'Sales Velocity (7d)', value: velocity },
+            { label: 'Inference Time', value: formatDate(row.timestamp) },
+            { label: 'Model Head', value: row.model_type },
+            { label: 'Field State', value: row.state || '—' },
+            { label: 'Risk Flag', value: row.risk_flag ? 'Flagged' : 'Normal' },
             { label: 'Model Version', value: row.model_version || '—' },
+            { label: 'Output', value: row.prediction_output },
           ].map(({ label, value }) => (
             <div key={label}>
               <p className="text-xs text-slate-500 mb-0.5">{label}</p>
-              <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{value}</p>
+              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 capitalize">{value}</p>
             </div>
           ))}
         </div>
@@ -191,45 +207,46 @@ export const LivePredictions = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Live Predictions Feed</h1>
-          <p className="text-slate-500 dark:text-slate-400">Click any row to view prediction details, SHAP values, and recommendations.</p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Multi-Model Live Predictions Feed</h1>
+          <p className="text-slate-500 dark:text-slate-400">Click any row to view model feature importance, SHAP values, and agricultural prescriptions.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input type="text" placeholder="Search SKU, product, country..." value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }} className="w-full sm:w-64 pl-9 pr-4 py-2 text-sm bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500/50" />
+            <input type="text" placeholder="Search Field ID, crop, state..." value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }} className="w-full sm:w-64 pl-9 pr-4 py-2 text-sm bg-white dark:bg-[#0E1411] border border-slate-200/80 dark:border-emerald-950/60 rounded-full focus:outline-none focus:ring-2 focus:ring-[#0F5238]/40 shadow-sm" />
           </div>
-          <select value={riskFilter} onChange={(e) => { setRiskFilter(e.target.value); setCurrentPage(1); }} className="px-3 py-2 text-sm bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500/50">
-            <option value="all">All Risk</option>
-            <option value="high">High Risk</option>
-            <option value="medium">Medium Risk</option>
-            <option value="low">Low Risk</option>
+          <select value={modelFilter} onChange={(e) => { setModelFilter(e.target.value); setCurrentPage(1); }} className="px-4 py-2 text-sm bg-white dark:bg-[#0E1411] border border-slate-200/80 dark:border-emerald-950/60 rounded-full focus:outline-none focus:ring-2 focus:ring-[#0F5238]/40 shadow-sm text-slate-700 dark:text-slate-300 font-semibold">
+            <option value="all">All Models</option>
+            <option value="irrigation">Irrigation Risk</option>
+            <option value="crop">Crop Recommender</option>
+            <option value="fertilizer">Fertilizer Recommender</option>
+            <option value="yield">Yield Predictor</option>
           </select>
-          <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 dark:bg-[#111827] dark:text-slate-200 dark:border-slate-800 dark:hover:bg-slate-800 transition-colors">
+          <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-slate-700 bg-white border border-slate-200/80 rounded-full hover:bg-slate-50 dark:bg-[#0E1411] dark:text-slate-200 dark:border-emerald-950/60 dark:hover:bg-emerald-950/40 transition-colors shadow-sm">
             <Download className="w-4 h-4" />
             <span className="hidden sm:inline">Export CSV</span>
           </button>
         </div>
       </div>
 
-      <Card>
-        <CardContent className="p-0">
+      <div className="rounded-3xl bg-white dark:bg-[#0E1411] border border-slate-200/80 dark:border-emerald-950/60 shadow-sm overflow-hidden">
+        <div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left whitespace-nowrap">
-              <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-800/50 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
+              <thead className="text-xs text-slate-500 uppercase bg-slate-50/70 dark:bg-emerald-950/30 dark:text-slate-400 border-b border-slate-200/60 dark:border-emerald-950/60">
                 <tr>
-                  <th className="px-5 py-4 font-medium cursor-pointer" onClick={() => handleSort('sku')}>
-                    <div className="flex items-center gap-1">SKU <ArrowUpDown className="w-3 h-3" /></div>
+                  <th className="px-5 py-4 font-medium cursor-pointer" onClick={() => handleSort('field_id')}>
+                    <div className="flex items-center gap-1">Field ID <ArrowUpDown className="w-3 h-3" /></div>
                   </th>
-                  <th className="px-5 py-4 font-medium">Product Name</th>
+                  <th className="px-5 py-4 font-medium">Model Head</th>
+                  <th className="px-5 py-4 font-medium">Prediction Output</th>
                   <th className="px-5 py-4 font-medium cursor-pointer" onClick={() => handleSort('prediction_prob')}>
-                    <div className="flex items-center gap-1">Probability <ArrowUpDown className="w-3 h-3" /></div>
+                    <div className="flex items-center gap-1">Confidence <ArrowUpDown className="w-3 h-3" /></div>
                   </th>
-                  <th className="px-5 py-4 font-medium">Risk</th>
-                  <th className="px-5 py-4 font-medium">Recommendation</th>
-                  <th className="px-5 py-4 font-medium">Country</th>
+                  <th className="px-5 py-4 font-medium">Prescription</th>
+                  <th className="px-5 py-4 font-medium">State</th>
                   <th className="px-5 py-4 font-medium cursor-pointer" onClick={() => handleSort('timestamp')}>
-                    <div className="flex items-center gap-1">Time <ArrowUpDown className="w-3 h-3" /></div>
+                    <div className="flex items-center gap-1">Inference Time <ArrowUpDown className="w-3 h-3" /></div>
                   </th>
                 </tr>
               </thead>
@@ -240,25 +257,22 @@ export const LivePredictions = () => {
                     ? paginated.map((row) => {
                         const risk = getRiskInfo(row.prediction_prob);
                         return (
-                          <tr key={row.id} onClick={() => setSelectedRow(row)} className="hover:bg-sky-50/50 dark:hover:bg-sky-500/5 cursor-pointer transition-colors group">
-                            <td className="px-5 py-3.5 font-mono font-medium text-slate-900 dark:text-slate-100 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">{row.sku}</td>
-                            <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 max-w-[180px] truncate">{row.product_name || 'Unknown'}</td>
-                            <td className="px-5 py-3.5 font-semibold">{formatPercent(row.prediction_prob)}</td>
-                            <td className="px-5 py-3.5">
-                              <Badge className={risk.badgeClass}>
-                                <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${risk.dotClass}`} />
-                                {risk.level}
-                              </Badge>
+                          <tr key={row.id} onClick={() => setSelectedRow(row)} className="hover:bg-emerald-50/50 dark:hover:bg-emerald-500/5 cursor-pointer transition-colors group">
+                            <td className="px-5 py-3.5 font-mono font-medium text-slate-900 dark:text-slate-100 group-hover:text-emerald-500 transition-colors">{row.field_id}</td>
+                            <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 capitalize">
+                              <Badge variant="outline" className="border-emerald-500/30 text-emerald-600 dark:text-emerald-400">{row.model_type}</Badge>
                             </td>
-                            <td className="px-5 py-3.5 text-slate-600 dark:text-slate-300 text-xs font-medium">{getRecommendation(row.prediction_prob)}</td>
-                            <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400">{row.country || '—'}</td>
+                            <td className="px-5 py-3.5 font-semibold text-slate-800 dark:text-slate-200">{row.prediction_output}</td>
+                            <td className="px-5 py-3.5 font-semibold text-emerald-500">{formatPercent(row.prediction_prob)}</td>
+                            <td className="px-5 py-3.5 text-slate-600 dark:text-slate-300 text-xs font-medium">{getRecommendation(row)}</td>
+                            <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400">{row.state || '—'}</td>
                             <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDate(row.timestamp)}</td>
                           </tr>
                         );
                       })
                     : (
                       <tr>
-                        <td colSpan={7} className="px-6 py-12 text-center text-slate-500">No predictions found.</td>
+                        <td colSpan={7} className="px-6 py-12 text-center text-slate-500">No AgriTech predictions found.</td>
                       </tr>
                     )
                 }
@@ -278,10 +292,10 @@ export const LivePredictions = () => {
               </div>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      <Modal isOpen={!!selectedRow} onClose={() => setSelectedRow(null)} title={`Prediction — ${selectedRow?.sku}`} size="lg">
+      <Modal isOpen={!!selectedRow} onClose={() => setSelectedRow(null)} title={`Agri-Inference Details — ${selectedRow?.field_id}`} size="lg">
         <DetailModal row={selectedRow} />
       </Modal>
     </div>

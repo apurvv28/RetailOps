@@ -31,7 +31,7 @@ export const formatTimeShort = (timestamp) => {
   });
 };
 
-// ===== RISK UTILITIES =====
+// ===== AGRI RISK UTILITIES =====
 export const getRiskInfo = (probability) => {
   if (probability >= 0.7) {
     return {
@@ -39,7 +39,7 @@ export const getRiskInfo = (probability) => {
       badgeClass: 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300',
       dotClass: 'bg-rose-500',
       color: '#f43f5e',
-      description: 'Critical stockout risk. Immediate reorder action required before inventory depletes.'
+      description: 'Critical moisture depletion detected! Trigger automated field irrigation valve immediately.'
     };
   } else if (probability >= 0.4) {
     return {
@@ -47,7 +47,7 @@ export const getRiskInfo = (probability) => {
       badgeClass: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
       dotClass: 'bg-amber-500',
       color: '#f59e0b',
-      description: 'Moderate stockout probability. Schedule a reorder within the next 48 hours.'
+      description: 'Moderate soil moisture loss. Schedule field irrigation cycle within 24 hours.'
     };
   } else {
     return {
@@ -55,7 +55,7 @@ export const getRiskInfo = (probability) => {
       badgeClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300',
       dotClass: 'bg-emerald-500',
       color: '#10b981',
-      description: 'Healthy inventory levels. Standard monitoring is sufficient.'
+      description: 'Optimal soil hydration levels. Standard automated monitoring active.'
     };
   }
 };
@@ -79,91 +79,106 @@ export const exportToCSV = (data, filename) => {
   URL.revokeObjectURL(url);
 };
 
-// ===== MOCK DATA =====
-const SKUS = ['22723', '85123A', '21970', '23084', '22197', '21212', '22423', '85099B', '22355', '20685'];
-const PRODUCTS = {
-  '22723': 'STRAWBERRY CERAMIC TRINKET BOX', '85123A': 'WHITE HANGING HEART T-LIGHT HOLDER',
-  '21970': 'HOME BUILDING BLOCK WORD', '23084': 'RABBIT NIGHT LIGHT',
-  '22197': 'SMALL POPCORN HOLDER', '21212': 'PACK OF 72 RETROSPOT CAKE CASES',
-  '22423': 'REGENCY CAKESTAND 3 TIER', '85099B': 'JUMBO BAG RED RETROSPOT',
-  '22355': 'CHARLOTTE BAG SUKI DESIGN', '20685': 'CHICKEN FEED'
-};
-const COUNTRIES = ['United Kingdom', 'Germany', 'France', 'Netherlands', 'Australia', 'Spain', 'Belgium'];
+// ===== AGRI MOCK DATA GENERATORS =====
+export const FIELDS = ['FIELD_MH_01', 'FIELD_MH_02', 'FIELD_US_01', 'FIELD_US_04', 'FIELD_PB_01', 'FIELD_KA_03'];
+export const CROPS = ['rice', 'maize', 'cotton', 'chickpea', 'banana', 'grapes', 'watermelon', 'coffee', 'jute', 'wheat'];
+export const FERTILIZERS = ['Urea', 'DAP', '14-35-14', '28-28', '17-17-17', '20-20', '10-26-26'];
+export const STATES = ['Maharashtra', 'Iowa', 'Illinois', 'Punjab', 'Karnataka', 'California'];
 
-const generateSKUPrediction = (i = 0) => {
-  const sku = SKUS[i % SKUS.length];
-  const prob = parseFloat((Math.random() * 0.95 + 0.05).toFixed(3));
-  return {
-    id: `pred_${Date.now()}_${i}`,
-    sku,
-    product_name: PRODUCTS[sku],
-    prediction_prob: prob,
-    risk_flag: prob >= 0.4 ? 1 : 0,
-    model_version: 'v1.2.0',
-    timestamp: new Date(Date.now() - i * 15000).toISOString(),
-    country: COUNTRIES[i % COUNTRIES.length],
-    top_features: [
-      { feature: 'quantity_sold_7d', importance: 0.42, value: Math.floor(Math.random() * 200 + 50) },
-      { feature: 'current_stock', importance: 0.31, value: Math.floor(Math.random() * 50 + 5) },
-      { feature: 'days_since_restock', importance: 0.18, value: Math.floor(Math.random() * 30 + 5) },
-      { feature: 'price_sensitivity', importance: 0.09, value: parseFloat((Math.random() * 2).toFixed(2)) },
-    ]
-  };
-};
+export const generateAgriPredictions = (count = 30) => {
+  return Array.from({ length: count }, (_, i) => {
+    const field_id = FIELDS[i % FIELDS.length];
+    const model_type = ['irrigation', 'crop', 'fertilizer', 'yield'][i % 4];
+    const prob = parseFloat((Math.random() * 0.85 + 0.1).toFixed(3));
+    
+    let pred_output = 'Low Risk';
+    if (model_type === 'irrigation') pred_output = prob >= 0.7 ? 'High Depletion Risk' : prob >= 0.4 ? 'Medium Depletion Risk' : 'Optimal Moisture';
+    else if (model_type === 'crop') pred_output = CROPS[i % CROPS.length];
+    else if (model_type === 'fertilizer') pred_output = FERTILIZERS[i % FERTILIZERS.length];
+    else if (model_type === 'yield') pred_output = `${(Math.random() * 80 + 120).toFixed(1)} bu/acre`;
 
-const generateRawEvent = (i = 0) => {
-  const sku = SKUS[i % SKUS.length];
-  return {
-    id: `evt_${Date.now()}_${i}`,
-    timestamp: new Date(Date.now() - i * 3000).toISOString(),
-    invoice_no: `INV${Math.floor(Math.random() * 900000 + 100000)}`,
-    sku,
-    product_name: PRODUCTS[sku],
-    quantity: Math.floor(Math.random() * 100 + 1),
-    country: COUNTRIES[i % COUNTRIES.length],
-    status: ['RECEIVED', 'PROCESSING', 'PREDICTED'][i % 3]
-  };
+    return {
+      id: `agri_pred_${Date.now()}_${i}`,
+      field_id,
+      model_type,
+      prediction_output: pred_output,
+      prediction_prob: prob,
+      risk_flag: prob >= 0.7 ? 1 : 0,
+      model_version: 'v3.0.0 (Production)',
+      timestamp: new Date(Date.now() - i * 12000).toISOString(),
+      state: STATES[i % STATES.length],
+      top_features: [
+        { feature: 'soil_moisture_3d_avg', importance: 0.45, value: (Math.random() * 20 + 10).toFixed(1) },
+        { feature: 'nitrogen_level', importance: 0.28, value: Math.floor(Math.random() * 100 + 20) },
+        { feature: 'temperature_c', importance: 0.17, value: (Math.random() * 15 + 20).toFixed(1) },
+        { feature: 'rainfall_mm', importance: 0.10, value: (Math.random() * 150 + 50).toFixed(1) },
+      ]
+    };
+  });
 };
 
-export const MOCK_PREDICTIONS = Array.from({ length: 30 }, (_, i) => generateSKUPrediction(i));
+export const generateRawTelemetryEvents = (count = 25) => {
+  return Array.from({ length: count }, (_, i) => {
+    const field_id = FIELDS[i % FIELDS.length];
+    return {
+      id: `evt_tel_${Date.now()}_${i}`,
+      timestamp: new Date(Date.now() - i * 4000).toISOString(),
+      field_id,
+      crop_type: CROPS[i % CROPS.length],
+      soil_type: 'Loamy',
+      nitrogen: Math.floor(Math.random() * 100 + 20),
+      phosphorus: Math.floor(Math.random() * 80 + 15),
+      potassium: Math.floor(Math.random() * 80 + 15),
+      temperature: parseFloat((Math.random() * 15 + 20).toFixed(1)),
+      humidity: parseFloat((Math.random() * 40 + 40).toFixed(1)),
+      ph: parseFloat((Math.random() * 2 + 5.5).toFixed(1)),
+      soil_moisture: parseFloat((Math.random() * 35 + 10).toFixed(1)),
+      rainfall: parseFloat((Math.random() * 200 + 50).toFixed(1)),
+      status: ['RECEIVED', 'PROCESSING', 'PREDICTED'][i % 3]
+    };
+  });
+};
+
+export const MOCK_PREDICTIONS = generateAgriPredictions(30);
 export const MOCK_ALERTS = Array.from({ length: 8 }, (_, i) => ({
-  id: `alert_${i}`,
-  sku: SKUS[i % SKUS.length],
-  recipient: 'inventory-team@retailops.internal',
-  action_type: 'email_alert',
-  details: `High stockout risk detected for SKU ${SKUS[i % SKUS.length]}. Immediate reorder recommended.`,
+  id: `alert_agri_${i}`,
+  field_id: FIELDS[i % FIELDS.length],
+  recipient: 'field-ops@agritech.internal',
+  action_type: 'irrigation_valve_trigger',
+  details: `Automated moisture depletion alert triggered for ${FIELDS[i % FIELDS.length]}. Soil moisture dropped below critical 15% threshold.`,
   sent_at: new Date(Date.now() - i * 3600000).toISOString(),
   status: 'delivered'
 }));
-export const MOCK_EVENTS = Array.from({ length: 25 }, (_, i) => generateRawEvent(i));
+export const MOCK_EVENTS = generateRawTelemetryEvents(25);
 
 export const MOCK_SYSTEM_HEALTH = {
-  kafka_broker: true,
-  kafka_producer: true,
-  kafka_consumer: true,
+  pubsub_broker: true,
+  telemetry_producer: true,
+  telemetry_consumer: true,
   fastapi: true,
-  cockroachdb: true,
+  sqlite_db: true,
   last_checked: new Date().toISOString()
 };
 
 export const MOCK_METRICS = {
-  events_per_second: parseFloat((Math.random() * 15 + 5).toFixed(1)),
-  processed_per_second: parseFloat((Math.random() * 12 + 4).toFixed(1)),
-  consumer_lag: Math.floor(Math.random() * 50),
-  kafka_queue_size: Math.floor(Math.random() * 200),
-  pending_messages: Math.floor(Math.random() * 30),
-  api_latency_ms: Math.floor(Math.random() * 80 + 20),
-  cpu_usage: parseFloat((Math.random() * 60 + 10).toFixed(1)),
-  memory_usage: parseFloat((Math.random() * 40 + 30).toFixed(1)),
-  model_accuracy: 0.942,
-  drift_score: parseFloat((Math.random() * 0.12 + 0.03).toFixed(3)),
+  events_per_second: parseFloat((Math.random() * 18 + 8).toFixed(1)),
+  processed_per_second: parseFloat((Math.random() * 15 + 6).toFixed(1)),
+  consumer_lag: Math.floor(Math.random() * 15),
+  pubsub_queue_size: Math.floor(Math.random() * 80),
+  pending_messages: Math.floor(Math.random() * 10),
+  api_latency_ms: Math.floor(Math.random() * 35 + 15),
+  cpu_usage: parseFloat((Math.random() * 40 + 10).toFixed(1)),
+  memory_usage: parseFloat((Math.random() * 30 + 25).toFixed(1)),
+  model_accuracy: 0.955,
+  drift_score: parseFloat((Math.random() * 0.08 + 0.01).toFixed(3)),
 };
 
 export const MOCK_DRIFT_STATUS = {
   dataset_drift: false,
-  drifted_columns: 1,
-  share_of_drifted_columns: 0.1,
+  drifted_columns: 0,
+  share_of_drifted_columns: 0.0,
   total_features: 10,
   last_checked: new Date().toISOString(),
   report_available: true
 };
+

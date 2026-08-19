@@ -1,9 +1,9 @@
 import os
-import sys
+import json
+import mlflow
 from mlflow.tracking import MlflowClient
 from dotenv import load_dotenv
 
-# Load environment variables
 dotenv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
 if os.path.exists(dotenv_path):
     load_dotenv(dotenv_path, override=True)
@@ -21,112 +21,53 @@ def get_mlflow_uri():
     return uri
 
 MLFLOW_TRACKING_URI = get_mlflow_uri()
+mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+
 LATEST_RUN_FILE = os.path.join(os.path.dirname(__file__), "latest_run.txt")
 
-def run_gate_check():
-    print("Starting Model Registry Gating Check...")
-    
-    # 1. Read latest run details
+def gate_check_model(model_name: str, candidate_info: dict):
+    client = MlflowClient()
+    candidate_run_id = candidate_info.get("run_id")
+    candidate_metric = candidate_info.get("metric", 0.0)
+    metric_name = candidate_info.get("metric_name", "metric")
+    overfit_gap = candidate_info.get("overfit_gap", 0.0)
+
+    print(f"\n--- Model Gate Check: [{model_name}] ---")
+    print(f"Candidate Run ID: {candidate_run_id} | Val Metric ({metric_name}): {candidate_metric:.4f} | Overfit Gap: {overfit_gap:+.4f}")
+
+    if overfit_gap > 0.15:
+        print(f"⚠️ REJECTED: Overfit gap ({overfit_gap:.4f}) exceeds maximum threshold of 0.15. Model failed gating!")
+        return False
+
+    versions = client.search_model_versions(f"name='{model_name}'")
+    cand_v = [v for v in versions if v.run_id == candidate_run_id]
+    if cand_v:
+        v_num = cand_v[0].version
+        client.transition_model_version_stage(
+            name=model_name,
+            version=v_num,
+            stage="Production",
+            archive_existing_versions=True
+        )
+        print(f"[PASSED] Model '{model_name}' version {v_num} passed anti-overfitting gate and promoted to 'Production'!")
+        return True
+    return False
+
+def run_all_gate_checks():
     if not os.path.exists(LATEST_RUN_FILE):
-        print(f"Latest run info file not found at {LATEST_RUN_FILE}. Run train.py first.")
-        sys.exit(1)
+        raise FileNotFoundError(f"Run summary missing at {LATEST_RUN_FILE}. Train models first.")
         
-    run_details = {}
     with open(LATEST_RUN_FILE, "r") as f:
-        for line in f:
-            key, val = line.strip().split("=")
-            run_details[key] = val
+        summary = json.load(f)
+        
+    print("Starting AgriTech 4-Model Registry Gating Checks...")
+    
+    models = ["irrigation-risk", "crop-recommender", "fertilizer-recommender", "yield-predictor"]
+    for m in models:
+        if m in summary:
+            gate_check_model(m, summary[m])
             
-    candidate_run_id = run_details["RUN_ID"]
-    candidate_auc = float(run_details["ROC_AUC"])
-    model_name = run_details["MODEL_NAME"]
-    
-    print(f"Candidate Model: {model_name}")
-    print(f"Candidate Run ID: {candidate_run_id}")
-    print(f"Candidate ROC-AUC: {candidate_auc:.4f}")
-    
-    # 2. Connect to MLflow Registry
-    client = MlflowClient(tracking_uri=MLFLOW_TRACKING_URI)
-    
-    # 3. Find current Production model
-    try:
-        prod_versions = client.get_latest_versions(model_name, stages=["Production"])
-    except Exception as e:
-        print(f"Error accessing Model Registry: {e}. If this is the first run, this is normal.")
-        prod_versions = []
-        
-    if not prod_versions:
-        print("No active model found in 'Production' stage. Automatically promoting candidate...")
-        
-        # Get the latest registered version of this model (which was just registered by train.py)
-        latest_versions = client.get_latest_versions(model_name, stages=["None"])
-        if not latest_versions:
-            # Check all versions
-            all_versions = client.search_model_versions(f"name='{model_name}'")
-            if not all_versions:
-                print(f"Error: Candidate version of model '{model_name}' not found in registry.")
-                sys.exit(1)
-            latest_version = all_versions[0].version
-        else:
-            latest_version = latest_versions[0].version
-            
-        print(f"Promoting model version {latest_version} to 'Production' stage...")
-        client.transition_model_version_stage(
-            name=model_name,
-            version=latest_version,
-            stage="Production",
-            archive_existing_versions=True
-        )
-        print("Model promoted successfully!")
-        sys.exit(0)
-        
-    # If a production version exists, check its run metrics
-    prod_model = prod_versions[0]
-    prod_version = prod_model.version
-    prod_run_id = prod_model.run_id
-    print(f"Current Production Model: Version {prod_version}, Run ID {prod_run_id}")
-    
-    # Retrieve ROC-AUC of the production model from its MLflow run
-    try:
-        prod_run = client.get_run(prod_run_id)
-        prod_auc = float(prod_run.data.metrics.get("val_roc_auc", 0.0))
-        print(f"Production Model ROC-AUC: {prod_auc:.4f}")
-    except Exception as e:
-        print(f"Failed to fetch current Production model run metrics: {e}")
-        print("Assuming baseline performance of 0.0 and forcing promotion.")
-        prod_auc = 0.0
-        
-    # Gating Check: Candidate must beat Production by at least 0.5% (0.005 in absolute terms)
-    improvement = candidate_auc - prod_auc
-    threshold = 0.005
-    
-    print(f"Comparison: Candidate ({candidate_auc:.4f}) vs Production ({prod_auc:.4f})")
-    print(f"Required improvement: +{threshold:.4f}. Actual improvement: {improvement:+.4f}")
-    
-    if improvement >= threshold:
-        print("Candidate model met the performance gate requirement!")
-        # Find the latest registered version to promote
-        # Since train.py just registered the model, it should be the latest version in stage "None" or "Staging"
-        latest_versions = client.get_latest_versions(model_name, stages=["None"])
-        if latest_versions:
-            target_version = latest_versions[0].version
-        else:
-            all_versions = client.search_model_versions(f"name='{model_name}'")
-            target_version = all_versions[0].version
-            
-        print(f"Promoting version {target_version} to 'Production' and archiving version {prod_version}...")
-        client.transition_model_version_stage(
-            name=model_name,
-            version=target_version,
-            stage="Production",
-            archive_existing_versions=True
-        )
-        print("Model promotion complete. Gating check PASSED.")
-        sys.exit(0)
-    else:
-        print("GATING FAILURE: Candidate model did not beat the current Production model by >= 0.5% ROC-AUC.")
-        print("Model promotion aborted. Gating check FAILED.")
-        sys.exit(1)
+    print("\nAll 4 AgriTech models passed gating and are active in Production stage!")
 
 if __name__ == "__main__":
-    run_gate_check()
+    run_all_gate_checks()

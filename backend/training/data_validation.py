@@ -2,99 +2,88 @@ import pandas as pd
 import pandera as pa
 from pandera import Column, Check, DataFrameSchema
 
-# Define the Pandera Schema for Raw Retail Events
-raw_event_schema = DataFrameSchema(
+# 1. Schema for Real Irrigation Telemetry (NRSC Maharashtra Soil Moisture)
+maharashtra_sm_schema = DataFrameSchema(
     columns={
-        "invoice_no": Column(str, coerce=True, nullable=False),
-        "stock_code": Column(str, coerce=True, nullable=False),
-        "description": Column(str, coerce=True, nullable=True),
-        "quantity": Column(int, coerce=True, nullable=False),
-        "invoice_date": Column("datetime64[ns]", coerce=True, nullable=False),
-        "unit_price": Column(float, checks=Check.greater_than_or_equal_to(0.0), coerce=True, nullable=True),
-        "customer_id": Column(str, coerce=True, nullable=True),
-        "country": Column(str, coerce=True, nullable=True),
-    },
-    checks=[
-        # Dataframe level check: If quantity is negative, the invoice number must start with 'C'
-        pa.Check(
-            lambda df: df[df["quantity"] < 0]["invoice_no"].str.startswith("C").all(),
-            name="cancellation_invoice_check",
-            error="Negative quantities (returns/cancellations) must have an invoice number starting with 'C'."
-        )
-    ]
+        "Date": Column(str, coerce=True, nullable=False),
+        "DistrictName": Column(str, coerce=True, nullable=False),
+        "Average Soilmoisture Level (at 15cm)": Column(float, checks=Check.greater_than_or_equal_to(0.0), coerce=True, nullable=True),
+        "Aggregate Soilmoisture Percentage (at 15cm)": Column(float, checks=Check.greater_than_or_equal_to(0.0), coerce=True, nullable=True),
+        "Volume Soilmoisture percentage (at 15cm)": Column(float, checks=Check.greater_than_or_equal_to(0.0), coerce=True, nullable=True),
+    }
 )
 
-def validate_events_df(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Validates a pandas DataFrame containing retail events against the raw_event_schema.
-    
-    Args:
-        df: The DataFrame to validate.
-        
-    Returns:
-        The validated and coerced DataFrame.
-        
-    Raises:
-        pandera.errors.SchemaError: If any validation checks fail.
-    """
-    print(f"Validating dataset slice with Pandera... Rows: {len(df)}")
-    
-    # 1. Clean date field: convert to datetime so Pandera can validate as pd.Timestamp
-    if not pd.api.types.is_datetime64_any_dtype(df["invoice_date"]):
-        df["invoice_date"] = pd.to_datetime(df["invoice_date"])
-        
-    # 2. Convert Customer ID to string (handling float conversion issues for NaN/Null)
-    if "customer_id" in df.columns:
-        # Convert e.g., 12345.0 float representations to "12345" string
-        df["customer_id"] = df["customer_id"].apply(
-            lambda val: str(int(float(val))) if pd.notna(val) and str(val).replace('.', '', 1).isdigit() else (str(val) if pd.notna(val) else None)
-        )
-        
-    # 3. Validate
-    try:
-        validated_df = raw_event_schema.validate(df)
-        print("Data validation passed successfully!")
-        return validated_df
-    except pa.errors.SchemaErrors as err:
-        print("Data validation failed with the following errors:")
-        print(err)
-        raise err
-    except Exception as e:
-        print(f"Unexpected error during validation: {e}")
-        raise e
+# 2. Schema for Real Crop Recommendation Dataset
+crop_recommendation_real_schema = DataFrameSchema(
+    columns={
+        "N": Column(float, checks=Check.greater_than_or_equal_to(0.0), coerce=True, nullable=False),
+        "P": Column(float, checks=Check.greater_than_or_equal_to(0.0), coerce=True, nullable=False),
+        "K": Column(float, checks=Check.greater_than_or_equal_to(0.0), coerce=True, nullable=False),
+        "temperature": Column(float, checks=[Check.greater_than_or_equal_to(-10.0), Check.less_than_or_equal_to(60.0)], coerce=True, nullable=False),
+        "humidity": Column(float, checks=[Check.greater_than_or_equal_to(0.0), Check.less_than_or_equal_to(100.0)], coerce=True, nullable=False),
+        "ph": Column(float, checks=[Check.greater_than_or_equal_to(0.0), Check.less_than_or_equal_to(14.0)], coerce=True, nullable=False),
+        "rainfall": Column(float, checks=Check.greater_than_or_equal_to(0.0), coerce=True, nullable=False),
+        "label": Column(str, coerce=True, nullable=False),
+    }
+)
 
-# Direct test code
+# 3. Schema for Real Fertilizer Recommendation Dataset
+fertilizer_recommendation_real_schema = DataFrameSchema(
+    columns={
+        "Temparature": Column(float, checks=[Check.greater_than_or_equal_to(-10.0), Check.less_than_or_equal_to(60.0)], coerce=True, nullable=False),
+        "Humidity ": Column(float, checks=[Check.greater_than_or_equal_to(0.0), Check.less_than_or_equal_to(100.0)], coerce=True, nullable=False),
+        "Moisture": Column(float, checks=[Check.greater_than_or_equal_to(0.0), Check.less_than_or_equal_to(100.0)], coerce=True, nullable=False),
+        "Soil Type": Column(str, coerce=True, nullable=False),
+        "Crop Type": Column(str, coerce=True, nullable=False),
+        "Nitrogen": Column(float, checks=Check.greater_than_or_equal_to(0.0), coerce=True, nullable=False),
+        "Potassium": Column(float, checks=Check.greater_than_or_equal_to(0.0), coerce=True, nullable=False),
+        "Phosphorous": Column(float, checks=Check.greater_than_or_equal_to(0.0), coerce=True, nullable=False),
+        "Fertilizer Name": Column(str, coerce=True, nullable=False),
+    }
+)
+
+# 4. Schema for CropNet Yield Dataset
+cropnet_yield_schema = DataFrameSchema(
+    columns={
+        "year": Column(int, coerce=True, nullable=False),
+        "state_name": Column(str, coerce=True, nullable=False),
+        "county_name": Column(str, coerce=True, nullable=False),
+        "commodity_desc": Column(str, coerce=True, nullable=False),
+        "yield_bu_per_acre": Column(float, checks=Check.greater_than_or_equal_to(0.0), coerce=True, nullable=False),
+    }
+)
+
+def validate_maharashtra_sm_df(df: pd.DataFrame) -> pd.DataFrame:
+    print(f"Validating Maharashtra Soil Moisture dataset with Pandera... Rows: {len(df)}")
+    return maharashtra_sm_schema.validate(df)
+
+validate_irrigation_df = validate_maharashtra_sm_df
+
+def validate_crop_df(df: pd.DataFrame) -> pd.DataFrame:
+    print(f"Validating Crop Recommendation dataset with Pandera... Rows: {len(df)}")
+    return crop_recommendation_real_schema.validate(df)
+
+def validate_fertilizer_df(df: pd.DataFrame) -> pd.DataFrame:
+    print(f"Validating Fertilizer Recommendation dataset with Pandera... Rows: {len(df)}")
+    return fertilizer_recommendation_real_schema.validate(df)
+
+def validate_cropnet_df(df: pd.DataFrame) -> pd.DataFrame:
+    print(f"Validating CropNet Yield dataset with Pandera... Rows: {len(df)}")
+    return cropnet_yield_schema.validate(df)
+
 if __name__ == "__main__":
-    print("Testing Pandera Validation on dummy data...")
-    
-    # Create valid dummy data
-    valid_data = pd.DataFrame({
-        "invoice_no": ["536365", "C536370"],
-        "stock_code": ["85123A", "22423"],
-        "description": ["WHITE HANGING HEART T-LIGHT HOLDER", "REGENCY CAKESTAND 3 TIER"],
-        "quantity": [6, -1],
-        "invoice_date": ["2009-12-01 07:45:00", "2009-12-01 07:50:00"],
-        "unit_price": [2.55, 12.75],
-        "customer_id": ["17850", "12583"],
-        "country": ["United Kingdom", "France"]
+    print("Testing Pandera Validation on Real AgriTech datasets...")
+    sample_crop = pd.DataFrame({
+        "N": [90.0, 85.0],
+        "P": [42.0, 58.0],
+        "K": [43.0, 41.0],
+        "temperature": [20.8, 21.7],
+        "humidity": [82.0, 80.3],
+        "ph": [6.5, 7.0],
+        "rainfall": [202.9, 226.6],
+        "label": ["rice", "rice"]
     })
-    
-    # Validate valid data
-    validate_events_df(valid_data)
-    
-    # Create invalid dummy data (negative price)
-    invalid_data = pd.DataFrame({
-        "invoice_no": ["536365"],
-        "stock_code": ["85123A"],
-        "description": ["WHITE HANGING HEART T-LIGHT HOLDER"],
-        "quantity": [6],
-        "invoice_date": ["2009-12-01 07:45:00"],
-        "unit_price": [-2.55], # Invalid negative price
-        "customer_id": ["17850"],
-        "country": ["United Kingdom"]
-    })
-    
-    try:
-        validate_events_df(invalid_data)
-    except Exception as e:
-        print(f"Validation caught invalid data as expected: {e}")
+    validate_crop_df(sample_crop)
+    print("Crop data validation PASSED!")
+
+

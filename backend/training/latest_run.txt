@@ -1,4 +1,65 @@
-RUN_ID=c043d45126114dc680755b15922b9c2e
-MODEL_URI=runs:/c043d45126114dc680755b15922b9c2e/model
-ROC_AUC=0.7164772727272727
-MODEL_NAME=Retail_Ops_LightGBM
+{
+  "irrigation-risk": {
+    "model_name": "irrigation-risk",
+    "run_id": "2b2bd032b41c40f1b2d5b9daf4e578ce",
+    "metric": 0.9952487414581859,
+    "metric_name": "val_roc_auc",
+    "overfit_gap": 0.0011783636085217486
+  },
+  "crop-recommender": {
+    "model_name": "crop-recommender",
+    "run_id": "0b28f56d20a741cf85eee116b3a7e8c7",
+    "metric": 0.9345277888619954,
+    "metric_name": "val_macro_f1",
+    "classes": {
+      "0": "apple",
+      "1": "banana",
+      "2": "blackgram",
+      "3": "chickpea",
+      "4": "coconut",
+      "5": "coffee",
+      "6": "cotton",
+      "7": "grapes",
+      "8": "jute",
+      "9": "kidneybeans",
+      "10": "lentil",
+      "11": "maize",
+      "12": "mango",
+      "13": "mothbeans",
+      "14": "mungbean",
+      "15": "muskmelon",
+      "16": "orange",
+      "17": "papaya",
+      "18": "pigeonpeas",
+      "19": "pomegranate",
+      "20": "rice",
+      "21": "watermelon"
+    },
+    "overfit_gap": 0.014796863880521038
+  },
+  "fertilizer-recommender": {
+    "model_name": "fertilizer-recommender",
+    "run_id": "56eb4ce8738a49819848b893930adeec",
+    "metric": 0.6266213729233263,
+    "metric_name": "val_macro_f1",
+    "classes": {
+      "0": "DAP",
+      "1": "Gypsum",
+      "2": "Lime",
+      "3": "MOP",
+      "4": "Potassium Nitrate",
+      "5": "Rhizobium",
+      "6": "Rock Phosphate",
+      "7": "SSP",
+      "8": "Urea"
+    },
+    "overfit_gap": 0.02034304980942947
+  },
+  "yield-predictor": {
+    "model_name": "yield-predictor",
+    "run_id": "8f0a858dfac3450ba4bee208f619a37f",
+    "metric": 0.874743437013537,
+    "metric_name": "val_r2",
+    "overfit_gap": 0.001801346282538363
+  }
+}

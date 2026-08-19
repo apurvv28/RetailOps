@@ -1,13 +1,13 @@
 import os
+import json
 import pandas as pd
 import numpy as np
 import mlflow
 import mlflow.sklearn
 import mlflow.lightgbm
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_auc_score, precision_score, recall_score, f1_score
-from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import StratifiedKFold, KFold
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, mean_squared_error, r2_score
 import lightgbm as lgb
 from dotenv import load_dotenv
 
@@ -30,197 +30,386 @@ def get_mlflow_uri():
 
 MLFLOW_TRACKING_URI = get_mlflow_uri()
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-mlflow.set_experiment("Retail_Ops_Stockout_Risk")
+mlflow.set_experiment("AgriTech_Intelligence_Suite")
 
-FEATURES_CSV = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "training_features.csv")
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+LATEST_RUN_FILE = os.path.join(os.path.dirname(__file__), "latest_run.txt")
 
-def run_training():
-    print(f"Loading engineered training features from {FEATURES_CSV}...")
-    if not os.path.exists(FEATURES_CSV):
-        raise FileNotFoundError(f"Features file not found at {FEATURES_CSV}. Please run Feature Engineering first.")
+def train_irrigation_risk_model():
+    print("\n==========================================")
+    print(" 1. Training Irrigation Risk Model (5-Fold CV, Regularized) ")
+    print("==========================================")
+    csv_path = os.path.join(DATA_DIR, "processed_irrigation_maharashtra.csv")
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"Processed dataset missing at {csv_path}")
         
-    df = pd.read_csv(FEATURES_CSV)
-    print(f"Dataset shape: {df.shape}")
-    
-    # 1. Prepare Features and Target
-    # Convert date to datetime for split
-    df["date"] = pd.to_datetime(df["date"])
-    
-    # Compute ratio features
-    df["inventory_to_sales_ratio"] = df["simulated_inventory"] / (df["daily_sales_avg_30"] + 1e-5)
-    df["inventory_to_sales_ratio_7"] = df["simulated_inventory"] / (df["daily_sales_avg_7"] + 1e-5)
-    
-    feature_cols = [
-        "daily_sales_avg_7", 
-        "daily_sales_avg_14", 
-        "daily_sales_avg_30", 
-        "demand_velocity", 
-        "day_of_week", 
-        "month", 
-        "holiday_flag",
-        "simulated_inventory",
-        "inventory_to_sales_ratio",
-        "inventory_to_sales_ratio_7"
-    ]
+    df = pd.read_csv(csv_path)
+    feature_cols = ["sm_level", "sm_pct", "sm_vol_pct", "sm_3d_avg", "sm_7d_avg", "hist_depletion_rate", "month", "day_of_year", "is_monsoon"]
     target_col = "target"
     
-    # 2. Time-aware Train/Test Split
-    # We use the last 30 days of data for testing/validation
-    max_date = df["date"].max()
-    split_date = max_date - pd.Timedelta(days=30)
+    X = df[feature_cols].copy().fillna(0)
+    y = df[target_col].astype(int).copy()
     
-    train_df = df[df["date"] < split_date].copy()
-    test_df = df[df["date"] >= split_date].copy()
-    
-    print(f"Training period: {train_df['date'].min().strftime('%Y-%m-%d')} to {train_df['date'].max().strftime('%Y-%m-%d')} ({len(train_df)} rows)")
-    print(f"Testing period: {test_df['date'].min().strftime('%Y-%m-%d')} to {test_df['date'].max().strftime('%Y-%m-%d')} ({len(test_df)} rows)")
-    
-    X_train, y_train = train_df[feature_cols].copy(), train_df[target_col].copy()
-    X_test, y_test = test_df[feature_cols].copy(), test_df[target_col].copy()
-    
-    # Clean NaN/Inf values if any
-    X_train = X_train.fillna(0).replace([np.inf, -np.inf], 0)
-    X_test = X_test.fillna(0).replace([np.inf, -np.inf], 0)
-    
-    # Scale features for Logistic Regression baseline
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
-    
-    # --- BASELINE MODEL: LOGISTIC REGRESSION ---
-    print("\n--- Training Baseline Logistic Regression Model ---")
-    with mlflow.start_run(run_name="Logistic_Regression_Baseline"):
-        model_lr = LogisticRegression(max_iter=1000, class_weight="balanced", random_state=42)
-        model_lr.fit(X_train_scaled, y_train)
-        
-        # Predict
-        preds_probs = model_lr.predict_proba(X_test_scaled)[:, 1]
-        
-        # Optimize threshold on training data to maximize F1
-        best_lr_th = 0.5
-        best_lr_train_f1 = 0.0
-        train_probs_lr = model_lr.predict_proba(X_train_scaled)[:, 1]
-        for th in np.arange(0.05, 0.95, 0.01):
-            th_preds = (train_probs_lr > th).astype(int)
-            th_f1 = f1_score(y_train, th_preds, zero_division=0)
-            if th_f1 > best_lr_train_f1:
-                best_lr_train_f1 = th_f1
-                best_lr_th = th
-                
-        # Evaluate on test data using optimized threshold
-        preds = (preds_probs > best_lr_th).astype(int)
-        roc_auc = roc_auc_score(y_test, preds_probs)
-        precision = precision_score(y_test, preds, zero_division=0)
-        recall = recall_score(y_test, preds, zero_division=0)
-        f1 = f1_score(y_test, preds, zero_division=0)
-        
-        print(f"LR Baseline (Opt Threshold={best_lr_th:.2f}) - ROC-AUC: {roc_auc:.4f}, F1-Score: {f1:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}")
-        
-        # Log to MLflow
-        mlflow.log_params({
-            "model_type": "LogisticRegression",
-            "C": model_lr.C,
-            "class_weight": "balanced",
-            "opt_threshold": best_lr_th
-        })
-        mlflow.log_metrics({
-            "val_roc_auc": roc_auc,
-            "val_precision": precision,
-            "val_recall": recall,
-            "val_f1": f1
-        })
-        mlflow.sklearn.log_model(model_lr, "model")
-        
-    # --- PRIMARY MODEL: LIGHTGBM ---
-    print("\n--- Training Primary LightGBM Model ---")
-    with mlflow.start_run(run_name="LightGBM_Production_Candidate") as run:
-        # Calculate scale_pos_weight for handling imbalance
-        num_neg = np.sum(y_train == 0)
-        num_pos = np.sum(y_train == 1)
-        scale_pos_weight = num_neg / (num_pos + 1e-5)
-        
-        params_lgb = {
-            "objective": "binary",
-            "metric": "auc",
-            "learning_rate": 0.03,
-            "max_depth": 6,
-            "num_leaves": 45,
-            "scale_pos_weight": scale_pos_weight,
-            "feature_fraction": 0.8,
-            "verbosity": -1,
-            "seed": 42
-        }
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    train_aucs, val_aucs = [], []
+    best_model = None
+    best_val_auc = -1.0
+
+    params = {
+        "objective": "binary",
+        "metric": "auc",
+        "learning_rate": 0.03,
+        "max_depth": 3,
+        "num_leaves": 7,
+        "min_child_samples": 30,
+        "subsample": 0.7,
+        "colsample_bytree": 0.7,
+        "reg_alpha": 2.0,
+        "reg_lambda": 2.0,
+        "verbosity": -1,
+        "seed": 42
+    }
+
+    for fold, (train_idx, val_idx) in enumerate(skf.split(X, y)):
+        X_train, y_train = X.iloc[train_idx], y.iloc[train_idx]
+        X_val, y_val = X.iloc[val_idx], y.iloc[val_idx]
         
         train_data = lgb.Dataset(X_train, label=y_train)
-        val_data = lgb.Dataset(X_test, label=y_test, reference=train_data)
+        val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
         
-        model_lgb = lgb.train(
-            params_lgb,
+        model = lgb.train(
+            params,
             train_data,
-            num_boost_round=300,
+            num_boost_round=120,
             valid_sets=[val_data],
-            callbacks=[lgb.early_stopping(stopping_rounds=25, verbose=False)]
+            callbacks=[lgb.early_stopping(stopping_rounds=15, verbose=False)]
         )
         
-        # Predict
-        preds_probs = model_lgb.predict(X_test)
+        tr_pred = model.predict(X_train)
+        val_pred = model.predict(X_val)
         
-        # Optimize threshold on training data to maximize F1
-        best_lgb_th = 0.5
-        best_lgb_train_f1 = 0.0
-        train_probs_lgb = model_lgb.predict(X_train)
-        for th in np.arange(0.05, 0.95, 0.01):
-            th_preds = (train_probs_lgb > th).astype(int)
-            th_f1 = f1_score(y_train, th_preds, zero_division=0)
-            if th_f1 > best_lgb_train_f1:
-                best_lgb_train_f1 = th_f1
-                best_lgb_th = th
-                
-        # Evaluate on test data using optimized threshold
-        preds = (preds_probs > best_lgb_th).astype(int)
-        roc_auc = roc_auc_score(y_test, preds_probs)
-        precision = precision_score(y_test, preds, zero_division=0)
-        recall = recall_score(y_test, preds, zero_division=0)
-        f1 = f1_score(y_test, preds, zero_division=0)
+        tr_auc = roc_auc_score(y_train, tr_pred)
+        val_auc = roc_auc_score(y_val, val_pred)
         
-        print(f"LightGBM Candidate (Opt Threshold={best_lgb_th:.2f}) - ROC-AUC: {roc_auc:.4f}, F1-Score: {f1:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}")
+        train_aucs.append(tr_auc)
+        val_aucs.append(val_auc)
         
-        # Log to MLflow
-        mlflow.log_params({
-            "model_type": "LightGBM",
-            "learning_rate": params_lgb["learning_rate"],
-            "max_depth": params_lgb["max_depth"],
-            "num_leaves": params_lgb["num_leaves"],
-            "scale_pos_weight": params_lgb["scale_pos_weight"],
-            "opt_threshold": best_lgb_th
-        })
+        if val_auc > best_val_auc:
+            best_val_auc = val_auc
+            best_model = model
+
+    mean_train_auc = float(np.mean(train_aucs))
+    mean_val_auc = float(np.mean(val_aucs))
+    overfit_gap = mean_train_auc - mean_val_auc
+
+    print(f"Irrigation Risk 5-CV -> Train ROC-AUC: {mean_train_auc:.4f} | Val ROC-AUC: {mean_val_auc:.4f} | Overfit Gap: {overfit_gap:+.4f}")
+    
+    with mlflow.start_run(run_name="Irrigation_Risk_LightGBM_5CV") as run:
+        mlflow.log_params(params)
         mlflow.log_metrics({
-            "val_roc_auc": roc_auc,
-            "val_precision": precision,
-            "val_recall": recall,
-            "val_f1": f1
+            "train_roc_auc": mean_train_auc,
+            "val_roc_auc": mean_val_auc,
+            "overfit_gap": overfit_gap
         })
+        model_name = "irrigation-risk"
+        mlflow.lightgbm.log_model(best_model, "model", registered_model_name=model_name)
+        return {"model_name": model_name, "run_id": run.info.run_id, "metric": mean_val_auc, "metric_name": "val_roc_auc", "overfit_gap": overfit_gap}
+
+def train_crop_recommendation_model():
+    print("\n==========================================")
+    print(" 2. Training Crop Recommendation Model (5-Fold CV, Regularized) ")
+    print("==========================================")
+    csv_path = os.path.join(DATA_DIR, "processed_crop_recommendation.csv")
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"Processed dataset missing at {csv_path}")
         
-        # Log LightGBM model and register in Model Registry
-        model_name = "Retail_Ops_LightGBM"
-        mlflow.lightgbm.log_model(
-            model_lgb, 
-            "model", 
-            registered_model_name=model_name
+    df = pd.read_csv(csv_path)
+    feature_cols = ["N", "P", "K", "temperature", "humidity", "ph", "rainfall", "N_P_ratio", "N_K_ratio", "P_K_ratio"]
+    target_col = "label"
+    
+    X = df[feature_cols].copy().fillna(0)
+    le = LabelEncoder()
+    y = le.fit_transform(df[target_col])
+    num_classes = len(le.classes_)
+    classes_dict = {i: cls_name for i, cls_name in enumerate(le.classes_)}
+
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    train_f1s, val_f1s = [], []
+    best_model = None
+    best_val_f1 = -1.0
+
+    params = {
+        "objective": "multiclass",
+        "num_class": num_classes,
+        "metric": "multi_logloss",
+        "learning_rate": 0.03,
+        "max_depth": 3,
+        "num_leaves": 10,
+        "min_child_samples": 25,
+        "subsample": 0.7,
+        "colsample_bytree": 0.7,
+        "reg_alpha": 1.5,
+        "reg_lambda": 1.5,
+        "verbosity": -1,
+        "seed": 42
+    }
+
+    for fold, (train_idx, val_idx) in enumerate(skf.split(X, y)):
+        X_train, y_train = X.iloc[train_idx], y[train_idx]
+        X_val, y_val = X.iloc[val_idx], y[val_idx]
+        
+        train_data = lgb.Dataset(X_train, label=y_train)
+        val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
+        
+        model = lgb.train(
+            params,
+            train_data,
+            num_boost_round=120,
+            valid_sets=[val_data],
+            callbacks=[lgb.early_stopping(stopping_rounds=15, verbose=False)]
         )
         
-        # Output the run ID and model URI for gate checking
-        run_id = run.info.run_id
-        model_uri = f"runs:/{run_id}/model"
-        print(f"LightGBM Model logged. Run ID: {run_id}")
-        print(f"Model URI: {model_uri}")
+        tr_pred = np.argmax(model.predict(X_train), axis=1)
+        val_pred = np.argmax(model.predict(X_val), axis=1)
         
-        # Save values for the gate check runner
-        with open("backend/training/latest_run.txt", "w") as f:
-            f.write(f"RUN_ID={run_id}\n")
-            f.write(f"MODEL_URI={model_uri}\n")
-            f.write(f"ROC_AUC={roc_auc}\n")
-            f.write(f"MODEL_NAME={model_name}\n")
-            
+        tr_f1 = f1_score(y_train, tr_pred, average="macro", zero_division=0)
+        val_f1 = f1_score(y_val, val_pred, average="macro", zero_division=0)
+        
+        train_f1s.append(tr_f1)
+        val_f1s.append(val_f1)
+        
+        if val_f1 > best_val_f1:
+            best_val_f1 = val_f1
+            best_model = model
+
+    mean_train_f1 = float(np.mean(train_f1s))
+    mean_val_f1 = float(np.mean(val_f1s))
+    overfit_gap = mean_train_f1 - mean_val_f1
+
+    print(f"Crop Recommendation 5-CV -> Train Macro F1: {mean_train_f1:.4f} | Val Macro F1: {mean_val_f1:.4f} | Overfit Gap: {overfit_gap:+.4f}")
+    
+    with mlflow.start_run(run_name="Crop_Recommender_LightGBM_5CV") as run:
+        mlflow.log_params(params)
+        mlflow.log_metrics({
+            "train_macro_f1": mean_train_f1,
+            "val_macro_f1": mean_val_f1,
+            "overfit_gap": overfit_gap
+        })
+        mlflow.log_dict(classes_dict, "label_encoder_classes.json")
+        model_name = "crop-recommender"
+        mlflow.lightgbm.log_model(best_model, "model", registered_model_name=model_name)
+        return {"model_name": model_name, "run_id": run.info.run_id, "metric": mean_val_f1, "metric_name": "val_macro_f1", "classes": classes_dict, "overfit_gap": overfit_gap}
+
+def train_fertilizer_recommendation_model():
+    print("\n==========================================")
+    print(" 3. Training Fertilizer Recommendation Model (5-Fold CV, Heavy Regularization) ")
+    print("==========================================")
+    csv_path = os.path.join(DATA_DIR, "processed_fertilizer_prediction.csv")
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"Processed dataset missing at {csv_path}")
+        
+    df = pd.read_csv(csv_path)
+    
+    soil_le = LabelEncoder()
+    crop_le = LabelEncoder()
+    fert_le = LabelEncoder()
+    
+    df["soil_type_code"] = soil_le.fit_transform(df["soil_type"].astype(str))
+    df["crop_type_code"] = crop_le.fit_transform(df["crop_type"].astype(str))
+    y = fert_le.fit_transform(df["fertilizer_name"].astype(str))
+    
+    feature_cols = ["temperature", "humidity", "moisture", "nitrogen", "phosphorus", "potassium", "N_P_ratio", "soil_type_code", "crop_type_code"]
+    X = df[feature_cols].copy().fillna(0)
+    num_classes = len(fert_le.classes_)
+    fert_classes_dict = {i: cls_name for i, cls_name in enumerate(fert_le.classes_)}
+
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    train_f1s, val_f1s = [], []
+    best_model = None
+    best_val_f1 = -1.0
+
+    # Shallow trees & high regularization to prevent overfitting on 99 rows
+    params = {
+        "objective": "multiclass",
+        "num_class": num_classes,
+        "metric": "multi_logloss",
+        "learning_rate": 0.03,
+        "max_depth": 2,
+        "num_leaves": 4,
+        "min_child_samples": 8,
+        "subsample": 0.6,
+        "colsample_bytree": 0.6,
+        "reg_alpha": 2.0,
+        "reg_lambda": 2.0,
+        "verbosity": -1,
+        "seed": 42
+    }
+
+    for fold, (train_idx, val_idx) in enumerate(skf.split(X, y)):
+        X_train, y_train = X.iloc[train_idx], y[train_idx]
+        X_val, y_val = X.iloc[val_idx], y[val_idx]
+        
+        train_data = lgb.Dataset(X_train, label=y_train)
+        val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
+        
+        model = lgb.train(
+            params,
+            train_data,
+            num_boost_round=100,
+            valid_sets=[val_data],
+            callbacks=[lgb.early_stopping(stopping_rounds=15, verbose=False)]
+        )
+        
+        tr_pred = np.argmax(model.predict(X_train), axis=1)
+        val_pred = np.argmax(model.predict(X_val), axis=1)
+        
+        tr_f1 = f1_score(y_train, tr_pred, average="macro", zero_division=0)
+        val_f1 = f1_score(y_val, val_pred, average="macro", zero_division=0)
+        
+        train_f1s.append(tr_f1)
+        val_f1s.append(val_f1)
+        
+        if val_f1 > best_val_f1:
+            best_val_f1 = val_f1
+            best_model = model
+
+    mean_train_f1 = float(np.mean(train_f1s))
+    mean_val_f1 = float(np.mean(val_f1s))
+    overfit_gap = mean_train_f1 - mean_val_f1
+
+    print(f"Fertilizer Recommendation 5-CV -> Train Macro F1: {mean_train_f1:.4f} | Val Macro F1: {mean_val_f1:.4f} | Overfit Gap: {overfit_gap:+.4f}")
+    
+    with mlflow.start_run(run_name="Fertilizer_Recommender_LightGBM_5CV") as run:
+        mlflow.log_params(params)
+        mlflow.log_metrics({
+            "train_macro_f1": mean_train_f1,
+            "val_macro_f1": mean_val_f1,
+            "overfit_gap": overfit_gap
+        })
+        mlflow.log_dict(fert_classes_dict, "fertilizer_classes.json")
+        model_name = "fertilizer-recommender"
+        mlflow.lightgbm.log_model(best_model, "model", registered_model_name=model_name)
+        return {"model_name": model_name, "run_id": run.info.run_id, "metric": mean_val_f1, "metric_name": "val_macro_f1", "classes": fert_classes_dict, "overfit_gap": overfit_gap}
+
+def train_yield_prediction_model():
+    print("\n==========================================")
+    print(" 4. Training Yield Prediction Model (Full CropNet Data, 5-Fold CV) ")
+    print("==========================================")
+    csv_path = os.path.join(DATA_DIR, "processed_cropnet_yield.csv")
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"Processed dataset missing at {csv_path}")
+        
+    df = pd.read_csv(csv_path)
+    
+    state_le = LabelEncoder()
+    county_le = LabelEncoder()
+    comm_le = LabelEncoder()
+    
+    df["state_code"] = state_le.fit_transform(df["state_name"].astype(str))
+    df["county_code"] = county_le.fit_transform(df["county_name"].astype(str))
+    df["commodity_code"] = comm_le.fit_transform(df["commodity_desc"].astype(str))
+    
+    feature_cols = ["year", "state_code", "county_code", "commodity_code", "log_production"]
+    target_col = "yield_bu_per_acre"
+    
+    X = df[feature_cols].copy().fillna(0)
+    y = df[target_col].copy()
+    
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    train_r2s, val_r2s = [], []
+    train_rmses, val_rmses = [], []
+    best_model = None
+    best_val_r2 = -1.0
+
+    params = {
+        "objective": "regression",
+        "metric": "rmse",
+        "learning_rate": 0.03,
+        "max_depth": 3,
+        "num_leaves": 8,
+        "min_child_samples": 30,
+        "subsample": 0.7,
+        "colsample_bytree": 0.7,
+        "reg_alpha": 1.5,
+        "reg_lambda": 1.5,
+        "verbosity": -1,
+        "seed": 42
+    }
+
+    for fold, (train_idx, val_idx) in enumerate(kf.split(X, y)):
+        X_train, y_train = X.iloc[train_idx], y.iloc[train_idx]
+        X_val, y_val = X.iloc[val_idx], y.iloc[val_idx]
+        
+        train_data = lgb.Dataset(X_train, label=y_train)
+        val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
+        
+        model = lgb.train(
+            params,
+            train_data,
+            num_boost_round=120,
+            valid_sets=[val_data],
+            callbacks=[lgb.early_stopping(stopping_rounds=15, verbose=False)]
+        )
+        
+        tr_pred = model.predict(X_train)
+        val_pred = model.predict(X_val)
+        
+        tr_r2 = r2_score(y_train, tr_pred)
+        val_r2 = r2_score(y_val, val_pred)
+        tr_rmse = np.sqrt(mean_squared_error(y_train, tr_pred))
+        val_rmse = np.sqrt(mean_squared_error(y_val, val_pred))
+        
+        train_r2s.append(tr_r2)
+        val_r2s.append(val_r2)
+        train_rmses.append(tr_rmse)
+        val_rmses.append(val_rmse)
+        
+        if val_r2 > best_val_r2:
+            best_val_r2 = val_r2
+            best_model = model
+
+    mean_train_r2 = float(np.mean(train_r2s))
+    mean_val_r2 = float(np.mean(val_r2s))
+    mean_val_rmse = float(np.mean(val_rmses))
+    overfit_gap = mean_train_r2 - mean_val_r2
+
+    print(f"CropNet Yield 5-CV -> Train R2: {mean_train_r2:.4f} | Val R2: {mean_val_r2:.4f} | Val RMSE: {mean_val_rmse:.4f} bu/acre | Overfit Gap: {overfit_gap:+.4f}")
+    
+    with mlflow.start_run(run_name="CropNet_Yield_Predictor_LightGBM_5CV") as run:
+        mlflow.log_params(params)
+        mlflow.log_metrics({
+            "train_r2": mean_train_r2,
+            "val_r2": mean_val_r2,
+            "val_rmse": mean_val_rmse,
+            "overfit_gap": overfit_gap
+        })
+        model_name = "yield-predictor"
+        mlflow.lightgbm.log_model(best_model, "model", registered_model_name=model_name)
+        return {"model_name": model_name, "run_id": run.info.run_id, "metric": mean_val_r2, "metric_name": "val_r2", "overfit_gap": overfit_gap}
+
+def run_all_training():
+    res_irrigation = train_irrigation_risk_model()
+    res_crop = train_crop_recommendation_model()
+    res_fertilizer = train_fertilizer_recommendation_model()
+    res_yield = train_yield_prediction_model()
+    
+    summary = {
+        "irrigation-risk": res_irrigation,
+        "crop-recommender": res_crop,
+        "fertilizer-recommender": res_fertilizer,
+        "yield-predictor": res_yield
+    }
+    
+    with open(LATEST_RUN_FILE, "w") as f:
+        json.dump(summary, f, indent=2)
+        
+    print("\n==========================================")
+    print(" All 4 AgriTech Models Trained with 5-Fold Cross-Validation! ")
+    print(f" Saved run summary to {LATEST_RUN_FILE}")
+    print("==========================================")
+
 if __name__ == "__main__":
-    run_training()
+    run_all_training()
+
+
+

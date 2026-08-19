@@ -6,40 +6,98 @@ class FeatureContribution(BaseModel):
     value: float
     importance: float
 
-class PredictionRequest(BaseModel):
-    sku: Optional[str] = "SKU_UNKNOWN"
-    daily_sales_avg_7: float
-    daily_sales_avg_14: float
-    daily_sales_avg_30: float
-    demand_velocity: float
-    day_of_week: int
-    month: int
-    holiday_flag: int
-    simulated_inventory: float
-    inventory_to_sales_ratio: float
-    inventory_to_sales_ratio_7: float
+# 1. Irrigation Risk Schemas
+class IrrigationPredictionRequest(BaseModel):
+    field_id: Optional[str] = "FIELD_001"
+    nitrogen: float = 50.0
+    phosphorus: float = 30.0
+    potassium: float = 30.0
+    temperature: float = 28.5
+    humidity: float = 65.0
+    soil_moisture: float = 25.0
+    rainfall: float = 0.0
 
-class PredictionResponse(BaseModel):
-    sku: str
-    stockout_probability: float
-    prediction: int
+class IrrigationPredictionResponse(BaseModel):
+    field_id: str
+    moisture_depletion_risk: float
+    risk_flag: bool
     decision_log_id: Optional[int] = None
     top_features: List[FeatureContribution] = []
 
+# 2. Crop Recommendation Schemas
+class CropPredictionRequest(BaseModel):
+    field_id: Optional[str] = "FIELD_001"
+    N: float = 90.0
+    P: float = 42.0
+    K: float = 43.0
+    temperature: float = 20.8
+    humidity: float = 82.0
+    ph: float = 6.5
+    rainfall: float = 202.9
+
+class CropRecommendationItem(BaseModel):
+    crop: str
+    confidence: float
+
+class CropPredictionResponse(BaseModel):
+    field_id: str
+    recommended_crop: str
+    confidence: float
+    top_3_recommendations: List[CropRecommendationItem] = []
+    llm_explanation: Optional[str] = None
+    decision_log_id: Optional[int] = None
+
+# 3. Fertilizer Recommendation Schemas
+class FertilizerPredictionRequest(BaseModel):
+    field_id: Optional[str] = "FIELD_001"
+    temperature: float = 26.0
+    humidity: float = 52.0
+    moisture: float = 38.0
+    soil_type: str = "Clayey"
+    crop_type: str = "Paddy"
+    nitrogen: float = 12.0
+    phosphorus: float = 35.0
+    potassium: float = 10.0
+
+class FertilizerPredictionResponse(BaseModel):
+    field_id: str
+    recommended_fertilizer: str
+    confidence: float
+    nutrient_deficiency_summary: str
+    llm_explanation: Optional[str] = None
+    decision_log_id: Optional[int] = None
+
+# 4. CropNet Yield Prediction Schemas
+class YieldPredictionRequest(BaseModel):
+    field_id: Optional[str] = "FIELD_001"
+    year: int = 2024
+    state_name: str = "ALABAMA"
+    county_name: str = "BALDWIN"
+    commodity_desc: str = "CORN"
+    production_bu: float = 1177000.0
+
+class YieldPredictionResponse(BaseModel):
+    field_id: str
+    predicted_yield_bu_per_acre: float
+    unit: str = "BU / ACRE"
+    decision_log_id: Optional[int] = None
+
+# Generic & Monitoring Schemas
 class OutcomeRequest(BaseModel):
     decision_log_id: int
-    actual_stockout_occurred: bool
+    actual_outcome: str
 
 class OutcomeResponse(BaseModel):
     status: str
     outcome_id: int
     decision_log_id: int
-    actual_stockout_occurred: bool
+    actual_outcome: str
 
 class AlertRequest(BaseModel):
-    sku: str
+    field_id: str
+    model_type: str = "irrigation"
     decision_log_id: Optional[int] = None
-    reason: Optional[str] = "High stockout risk predicted"
+    reason: Optional[str] = "High depletion risk or nutrient deficiency"
     recipient: Optional[str] = None
 
 class AlertResponse(BaseModel):
@@ -49,15 +107,26 @@ class AlertResponse(BaseModel):
 
 class DecisionLogItem(BaseModel):
     id: int
-    sku: str
-    prediction_prob: float
-    risk_flag: int
+    field_id: str
+    model_type: str
+    prediction_output: str
+    confidence_score: float
+    risk_flag: bool
     model_version: str
     timestamp: str
 
 class RecentPredictionsResponse(BaseModel):
     count: int
     predictions: List[DecisionLogItem]
+
+class ModelDriftDetail(BaseModel):
+    model_name: str
+    model_key: str
+    drift_detected: bool
+    drifted_features: List[str]
+    total_features: int
+    psi_score: float
+    status: str
 
 class DriftStatusResponse(BaseModel):
     dataset_drift: bool
@@ -66,11 +135,13 @@ class DriftStatusResponse(BaseModel):
     total_features: int
     last_checked: str
     report_available: bool
+    model_drifts: Optional[List[ModelDriftDetail]] = []
 
 class ActionItem(BaseModel):
     id: int
     decision_log_id: Optional[int] = None
-    sku: str
+    field_id: str
+    model_type: str
     action_type: str
     sent_at: str
     recipient: Optional[str] = None
@@ -78,4 +149,4 @@ class ActionItem(BaseModel):
 
 class AlertsHistoryResponse(BaseModel):
     count: int
-    alerts: List[ActionItem]
+    alerts: List[ActionItem]

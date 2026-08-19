@@ -15,7 +15,7 @@ else:
 
 QUEUE_TYPE = os.getenv("QUEUE_TYPE", "local").lower()
 GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID")
-GCP_PUBSUB_TOPIC = os.getenv("GCP_PUBSUB_TOPIC", "retail-ops-topic")
+GCP_PUBSUB_TOPIC = os.getenv("GCP_PUBSUB_TOPIC", "agritech-telemetry-topic")
 GCP_PUBSUB_SUB = os.getenv("GCP_PUBSUB_SUB", f"{GCP_PUBSUB_TOPIC}-sub")
 LOCAL_QUEUE_DB = os.path.join(os.path.dirname(os.path.dirname(__file__)), "local_queue.db")
 

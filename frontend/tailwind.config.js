@@ -8,23 +8,28 @@ export default {
   theme: {
     extend: {
       colors: {
-        brand: {
-          50: '#f0f7ff',
-          100: '#e0effe',
-          500: '#0284c7',
-          600: '#0284c7',
-          700: '#0369a1',
-          900: '#0c4a6e',
+        forest: {
+          50: '#f2f9f5',
+          100: '#e1f2e7',
+          200: '#c3e5d0',
+          300: '#94d1ab',
+          400: '#5db37e',
+          500: '#1e7f53',
+          600: '#166534',
+          700: '#0f5235',
+          800: '#0b3d27',
+          900: '#072b1c',
+          950: '#03170e',
         },
         dark: {
-          bg: '#0B0F19',
-          card: '#111827',
-          border: '#1F2937',
-          muted: '#374151',
+          bg: '#060907',
+          card: '#0E1411',
+          border: '#15241D',
+          muted: '#1F342B',
         }
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+        sans: ['"Plus Jakarta Sans"', 'Inter', 'system-ui', 'sans-serif'],
       },
       animation: {
         'pulse-subtle': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
