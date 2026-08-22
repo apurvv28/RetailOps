@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { Menu, Search, Sun, Moon, Bell, Mail } from 'lucide-react';
+import { Menu, Search, Sun, Moon, Bell, Mail, LogOut } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useDashboard } from '../context/DashboardContext';
+import { useAuth } from '../context/AuthContext';
 
 export const Navbar = ({ setSidebarOpen }) => {
   const { alerts } = useDashboard();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
 
@@ -17,6 +19,11 @@ export const Navbar = ({ setSidebarOpen }) => {
       root.classList.add('dark');
       setIsDark(true);
     }
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login', { replace: true });
   };
 
   return (
@@ -46,7 +53,7 @@ export const Navbar = ({ setSidebarOpen }) => {
       {/* Action Pill Group */}
       <div className="flex items-center gap-2.5 relative ml-4">
         <button
-          onClick={() => navigate('/alerts')}
+          onClick={() => navigate('/admin/alerts')}
           className="p-2.5 text-slate-600 dark:text-slate-300 bg-white dark:bg-[#0E1411] border border-slate-200/80 dark:border-emerald-950/60 rounded-full hover:bg-slate-50 dark:hover:bg-emerald-950/40 shadow-sm transition-all relative flex items-center justify-center"
           title="View Live Alerts"
         >
@@ -57,7 +64,7 @@ export const Navbar = ({ setSidebarOpen }) => {
         </button>
 
         <button
-          onClick={() => navigate('/alerts')}
+          onClick={() => navigate('/admin/alerts')}
           className="p-2.5 text-slate-600 dark:text-slate-300 bg-white dark:bg-[#0E1411] border border-slate-200/80 dark:border-emerald-950/60 rounded-full hover:bg-slate-50 dark:hover:bg-emerald-950/40 shadow-sm transition-all"
           title="Field Messages"
         >
@@ -72,19 +79,31 @@ export const Navbar = ({ setSidebarOpen }) => {
           {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
         </button>
 
-        {/* Profile Pill */}
-        <div className="flex items-center gap-3 pl-2 pr-4 py-1.5 bg-white dark:bg-[#0E1411] border border-slate-200/80 dark:border-emerald-950/60 rounded-full shadow-sm ml-1">
+        {/* Profile Pill & Logout Button */}
+        <div className="flex items-center gap-3 pl-2 pr-3 py-1.5 bg-white dark:bg-[#0E1411] border border-slate-200/80 dark:border-emerald-950/60 rounded-full shadow-sm ml-1">
           <img
-            src="https://api.dicebear.com/7.x/avataaars/svg?seed=Apurv"
-            alt="Apurv Profile"
-            className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/40"
+            src={user?.picture || "https://api.dicebear.com/7.x/avataaars/svg?seed=Apurv"}
+            alt="Profile Avatar"
+            className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/40 object-cover"
           />
           <div className="hidden sm:flex flex-col text-left">
-            <span className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-tight">Apurv</span>
-            <span className="text-[10px] text-slate-500 dark:text-slate-400">MLOps Lead</span>
+            <span className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-tight">
+              {user?.name || "Apurv"}
+            </span>
+            <span className="text-[10px] text-emerald-500 font-semibold uppercase tracking-wider">
+              {user?.role || "Admin"} Portal
+            </span>
           </div>
+          <button
+            onClick={handleLogout}
+            className="p-1.5 text-rose-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-full transition-all ml-1"
+            title="Logout from System"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
         </div>
       </div>
     </header>
   );
 };
+

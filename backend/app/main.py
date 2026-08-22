@@ -6,6 +6,7 @@ from typing import Optional, List
 import pandas as pd
 import numpy as np
 from fastapi import FastAPI, HTTPException, Depends, Header, Query, status
+from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
@@ -27,13 +28,30 @@ from backend.app.schemas import (
     AlertRequest,
     AlertResponse,
     RecentPredictionsResponse,
+    ModelDriftDetail,
     DriftStatusResponse,
     AlertsHistoryResponse,
     DecisionLogItem,
     ActionItem,
-    FeatureContribution
+    FeatureContribution,
+    GoogleAuthRequest,
+    DemoLoginRequest,
+    AuthTokenResponse,
+    FarmerProfileRequest,
+    FarmerProfileResponse
 )
+from backend.app.auth import (
+    create_access_token,
+    verify_google_id_token,
+    exchange_google_code,
+    fetch_or_create_user,
+    get_current_user,
+    require_admin,
+    require_farmer
+)
+
 from backend.monitoring.alert_service import send_alert_email
+
 
 # Load environment variables
 dotenv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
@@ -78,7 +96,10 @@ def verify_api_key(x_api_key: Optional[str] = Header(None)):
 app = FastAPI(
     title="AgriTech Intelligence Suite API",
     version="2.0.0",
-    description="Multi-Model MLOps Backend for Irrigation Risk, Crop Recommendation, and Fertilizer Advisory"
+    description="""
+AgriTech Intelligence Suite API - Production Multi-Model MLOps Engine
+Integrated with CockroachDB / SQLite, BetterAuth Google OAuth, MLflow Registry & Feature Store Engine.
+"""
 )
 
 app.add_middleware(
@@ -125,6 +146,323 @@ def health():
         },
         "database": db_status
     }
+
+# ==================== AUTHENTICATION & RBAC ENDPOINTS ====================
+
+@app.get("/api/auth/google/url")
+def get_google_auth_url(role: str = "farmer"):
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "")
+    redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/auth/google/callback")
+    scope = "openid email profile"
+    import urllib.parse
+    encoded_redirect = urllib.parse.quote(redirect_uri)
+    auth_url = (
+        f"https://accounts.google.com/o/oauth2/v2/auth?"
+        f"client_id={client_id}&"
+        f"redirect_uri={encoded_redirect}&"
+        f"response_type=code&"
+        f"scope={scope}&"
+        f"state={role}&"
+        f"prompt=select_account"
+    )
+    return {"auth_url": auth_url}
+
+@app.get("/api/auth/google/callback")
+def google_auth_callback(code: str, state: Optional[str] = "farmer"):
+    redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/auth/google/callback")
+    user_info = exchange_google_code(code, redirect_uri)
+    
+    role = state if state in ["admin", "farmer"] else "farmer"
+    user = fetch_or_create_user(
+        google_id=user_info["google_id"],
+        email=user_info["email"],
+        name=user_info["name"],
+        picture=user_info.get("picture", ""),
+        requested_role=role
+    )
+    
+    token = create_access_token({"sub": str(user["id"]), "role": user["role"], "email": user["email"]})
+    
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    import urllib.parse
+    encoded_user = urllib.parse.quote(json.dumps(user))
+    return RedirectResponse(url=f"{frontend_url}/login?token={token}&user={encoded_user}")
+
+@app.post("/api/auth/google", response_model=AuthTokenResponse)
+def login_with_google(req: GoogleAuthRequest):
+    # Verify Google token
+    user_info = verify_google_id_token(req.id_token)
+    user = fetch_or_create_user(
+        google_id=user_info["google_id"],
+        email=user_info["email"],
+        name=user_info["name"],
+        picture=user_info.get("picture", ""),
+        requested_role=req.requested_role or "farmer"
+    )
+    token = create_access_token({"sub": str(user["id"]), "role": user["role"], "email": user["email"]})
+    return AuthTokenResponse(access_token=token, user=user)
+
+
+@app.post("/api/auth/demo-login", response_model=AuthTokenResponse)
+def demo_login(req: DemoLoginRequest):
+    role = req.role.lower() if req.role in ["admin", "farmer"] else "farmer"
+    if role == "admin":
+        email = req.email or "admin@agritech.com"
+        name = "AgriOps System Admin"
+        google_id = "demo-admin-google-id"
+    else:
+        email = req.email or "farmer@agritech.com"
+        name = "Ramesh Kumar (Farmer)"
+        google_id = "demo-farmer-google-id"
+
+    user = fetch_or_create_user(
+        google_id=google_id,
+        email=email,
+        name=name,
+        picture="",
+        requested_role=role
+    )
+    token = create_access_token({"sub": str(user["id"]), "role": user["role"], "email": user["email"]})
+    return AuthTokenResponse(access_token=token, user=user)
+
+@app.get("/api/auth/me")
+def get_me(current_user: dict = Depends(get_current_user)):
+    return {"user": current_user}
+
+# ==================== MLOPS MODEL REGISTRY ENDPOINTS ====================
+
+@app.get("/api/mlops/models")
+def get_mlops_models(current_user: dict = Depends(get_current_user)):
+    models = []
+    is_sqlite = DATABASE_URL.startswith("sqlite://")
+    conn = get_db_connection()
+    try:
+        if is_sqlite:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, model_key, model_name, algorithm, version, stage, accuracy_score, f1_score, rmse_score, artifact_uri, parameters_json, metrics_json, updated_at
+                FROM model_registry
+                ORDER BY id ASC
+                """
+            )
+            for r in cursor.fetchall():
+                models.append({
+                    "id": r["id"],
+                    "model_key": r["model_key"],
+                    "model_name": r["model_name"],
+                    "algorithm": r["algorithm"],
+                    "version": r["version"],
+                    "stage": r["stage"],
+                    "accuracy_score": float(r["accuracy_score"]) if r["accuracy_score"] is not None else None,
+                    "f1_score": float(r["f1_score"]) if r["f1_score"] is not None else None,
+                    "rmse_score": float(r["rmse_score"]) if r["rmse_score"] is not None else None,
+                    "artifact_uri": r["artifact_uri"],
+                    "parameters": json.loads(r["parameters_json"]) if r["parameters_json"] else {},
+                    "metrics": json.loads(r["metrics_json"]) if r["metrics_json"] else {},
+                    "updated_at": str(r["updated_at"])
+                })
+            conn.close()
+        else:
+            res = conn.execute(text("SELECT id, model_key, model_name, algorithm, version, stage, accuracy_score, f1_score, rmse_score, artifact_uri, parameters_json, metrics_json, updated_at FROM model_registry ORDER BY id ASC")).fetchall()
+            conn.close()
+            for r in res:
+                models.append({
+                    "id": r[0],
+                    "model_key": r[1],
+                    "model_name": r[2],
+                    "algorithm": r[3],
+                    "version": r[4],
+                    "stage": r[5],
+                    "accuracy_score": float(r[6]) if r[6] is not None else None,
+                    "f1_score": float(r[7]) if r[7] is not None else None,
+                    "rmse_score": float(r[8]) if r[8] is not None else None,
+                    "artifact_uri": r[9],
+                    "parameters": json.loads(r[10]) if r[10] else {},
+                    "metrics": json.loads(r[11]) if r[11] else {},
+                    "updated_at": str(r[12])
+                })
+    except Exception as e:
+        if hasattr(conn, "close"): conn.close()
+        print(f"Error fetching model registry: {e}")
+
+    return {"count": len(models), "models": models}
+
+@app.post("/api/mlops/models/promote")
+def promote_mlops_model(model_key: str = Query(...), new_stage: str = Query("Production"), current_user: dict = Depends(require_admin)):
+    is_sqlite = DATABASE_URL.startswith("sqlite://")
+    conn = get_db_connection()
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        if is_sqlite:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE model_registry SET stage = ?, updated_at = ? WHERE model_key = ?",
+                (new_stage, now_str, model_key)
+            )
+            conn.commit()
+            conn.close()
+        else:
+            trans = conn.begin()
+            conn.execute(
+                text("UPDATE model_registry SET stage = :stg, updated_at = :uats WHERE model_key = :mk"),
+                {"stg": new_stage, "uats": now_str, "mk": model_key}
+            )
+            trans.commit()
+            conn.close()
+        return {"status": "success", "message": f"Model '{model_key}' stage updated to '{new_stage}' in database."}
+    except Exception as e:
+        if hasattr(conn, "close"): conn.close()
+        raise HTTPException(status_code=500, detail=f"Failed to update model stage: {e}")
+
+
+# ==================== FARMER PROFILE & ISOLATED DASHBOARD ENDPOINTS ====================
+
+@app.get("/api/farmer/profile", response_model=FarmerProfileResponse)
+def get_farmer_profile(current_user: dict = Depends(require_farmer)):
+    user_id = current_user["id"]
+    is_sqlite = DATABASE_URL.startswith("sqlite://")
+    conn = get_db_connection()
+
+    profile = None
+    try:
+        if is_sqlite:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT user_id, farm_name, gps_latitude, gps_longitude, region, current_crops, sensors_config, updated_at FROM farmer_profiles WHERE user_id = ?",
+                (user_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                profile = dict(row)
+            conn.close()
+        else:
+            res = conn.execute(
+                text("SELECT user_id, farm_name, gps_latitude, gps_longitude, region, current_crops, sensors_config, updated_at FROM farmer_profiles WHERE user_id = :uid"),
+                {"uid": user_id}
+            ).fetchone()
+            conn.close()
+            if res:
+                profile = {
+                    "user_id": res[0], "farm_name": res[1], "gps_latitude": float(res[2]),
+                    "gps_longitude": float(res[3]), "region": res[4], "current_crops": res[5],
+                    "sensors_config": res[6], "updated_at": str(res[7])
+                }
+
+        if not profile:
+            # Create default profile
+            profile = {
+                "user_id": user_id,
+                "farm_name": f"{current_user['name']}'s Farm",
+                "gps_latitude": 18.5204,
+                "gps_longitude": 73.8567,
+                "region": "Maharashtra",
+                "current_crops": "Paddy, Cotton",
+                "sensors_config": '{"soil_moisture_sensor": true, "npk_sensor": true, "weather_station": true}',
+                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+
+        sensors_dict = json.loads(profile["sensors_config"]) if isinstance(profile["sensors_config"], str) else profile["sensors_config"]
+
+        return FarmerProfileResponse(
+            user_id=profile["user_id"],
+            farm_name=profile["farm_name"],
+            gps_latitude=float(profile["gps_latitude"]),
+            gps_longitude=float(profile["gps_longitude"]),
+            region=profile["region"],
+            current_crops=profile["current_crops"],
+            sensors_config=sensors_dict,
+            updated_at=str(profile["updated_at"])
+        )
+    except Exception as e:
+        if hasattr(conn, "close"): conn.close()
+        raise HTTPException(status_code=500, detail=f"Failed to fetch profile: {e}")
+
+@app.put("/api/farmer/profile", response_model=FarmerProfileResponse)
+def update_farmer_profile(req: FarmerProfileRequest, current_user: dict = Depends(require_farmer)):
+    user_id = current_user["id"]
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    sensors_json = json.dumps(req.sensors_config)
+
+    is_sqlite = DATABASE_URL.startswith("sqlite://")
+    conn = get_db_connection()
+
+    try:
+        if is_sqlite:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM farmer_profiles WHERE user_id = ?", (user_id,))
+            if cursor.fetchone():
+                cursor.execute(
+                    """
+                    UPDATE farmer_profiles
+                    SET farm_name = ?, gps_latitude = ?, gps_longitude = ?, region = ?, current_crops = ?, sensors_config = ?, updated_at = ?
+                    WHERE user_id = ?
+                    """,
+                    (req.farm_name, req.gps_latitude, req.gps_longitude, req.region, req.current_crops, sensors_json, now_str, user_id)
+                )
+            else:
+                cursor.execute(
+                    """
+                    INSERT INTO farmer_profiles (user_id, farm_name, gps_latitude, gps_longitude, region, current_crops, sensors_config, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (user_id, req.farm_name, req.gps_latitude, req.gps_longitude, req.region, req.current_crops, sensors_json, now_str)
+                )
+            conn.commit()
+            conn.close()
+        else:
+            trans = conn.begin()
+            check = conn.execute(text("SELECT id FROM farmer_profiles WHERE user_id = :uid"), {"uid": user_id}).fetchone()
+            if check:
+                conn.execute(
+                    text("""
+                        UPDATE farmer_profiles
+                        SET farm_name = :fn, gps_latitude = :lat, gps_longitude = :lng, region = :reg, current_crops = :crops, sensors_config = :sconf, updated_at = :uats
+                        WHERE user_id = :uid
+                    """),
+                    {"fn": req.farm_name, "lat": req.gps_latitude, "lng": req.gps_longitude, "reg": req.region, "crops": req.current_crops, "sconf": sensors_json, "uats": now_str, "uid": user_id}
+                )
+            else:
+                conn.execute(
+                    text("""
+                        INSERT INTO farmer_profiles (user_id, farm_name, gps_latitude, gps_longitude, region, current_crops, sensors_config, updated_at)
+                        VALUES (:uid, :fn, :lat, :lng, :reg, :crops, :sconf, :uats)
+                    """),
+                    {"uid": user_id, "fn": req.farm_name, "lat": req.gps_latitude, "lng": req.gps_longitude, "reg": req.region, "crops": req.current_crops, "sconf": sensors_json, "uats": now_str}
+                )
+            trans.commit()
+            conn.close()
+
+        return FarmerProfileResponse(
+            user_id=user_id,
+            farm_name=req.farm_name,
+            gps_latitude=req.gps_latitude,
+            gps_longitude=req.gps_longitude,
+            region=req.region,
+            current_crops=req.current_crops,
+            sensors_config=req.sensors_config,
+            updated_at=now_str
+        )
+    except Exception as e:
+        if hasattr(conn, "close"): conn.close()
+        raise HTTPException(status_code=500, detail=f"Failed to update profile: {e}")
+
+@app.get("/api/farmer/summary")
+def get_farmer_summary(current_user: dict = Depends(require_farmer)):
+    user_id = current_user["id"]
+    return {
+        "user_id": user_id,
+        "farmer_name": current_user["name"],
+        "farm_status": "Healthy / Monitoring Active",
+        "soil_moisture": 28.5,
+        "moisture_risk": 0.35,
+        "recommended_crop": "Paddy",
+        "recommended_fertilizer": "Urea (46% N)",
+        "expected_yield": "158.4 BU/ACRE",
+        "alerts_count": 1,
+        "active_alert": "Moderate Soil Depletion Warning for Field #1"
+    }
+
 
 # 1. Irrigation Risk Endpoint
 @app.post("/predict/irrigation", response_model=IrrigationPredictionResponse, dependencies=[Depends(verify_api_key)])

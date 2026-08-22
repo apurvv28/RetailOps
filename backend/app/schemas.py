@@ -149,4 +149,37 @@ class ActionItem(BaseModel):
 
 class AlertsHistoryResponse(BaseModel):
     count: int
-    alerts: List[ActionItem]
+    alerts: List[ActionItem]
+
+# Auth & Farmer Profile Schemas
+class GoogleAuthRequest(BaseModel):
+    id_token: str
+    requested_role: Optional[str] = "farmer"
+
+class DemoLoginRequest(BaseModel):
+    role: str = "farmer" # 'admin' or 'farmer'
+    email: Optional[str] = None
+
+class AuthTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: Dict[str, Any]
+
+class FarmerProfileRequest(BaseModel):
+    farm_name: str
+    gps_latitude: float
+    gps_longitude: float
+    region: str
+    current_crops: str
+    sensors_config: Dict[str, bool]
+
+class FarmerProfileResponse(BaseModel):
+    user_id: int
+    farm_name: str
+    gps_latitude: float
+    gps_longitude: float
+    region: str
+    current_crops: str
+    sensors_config: Dict[str, bool]
+    updated_at: str
+

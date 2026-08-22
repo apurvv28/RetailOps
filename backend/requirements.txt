@@ -18,3 +18,5 @@ google-cloud-pubsub>=2.18.0
 google-cloud-bigquery>=3.11.0
 openpyxl>=3.1.0
 boto3>=1.26.0
+pyjwt>=2.8.0
+requests>=2.31.0

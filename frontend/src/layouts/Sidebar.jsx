@@ -1,27 +1,38 @@
 import React from 'react';
-import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Activity, Radio, PieChart, Bell, Settings, Sprout, Smartphone, HelpCircle, ArrowUpRight } from 'lucide-react';
+import { NavLink, useNavigate } from 'react-router-dom';
+import { LayoutDashboard, Activity, Radio, PieChart, Bell, Settings, Sprout, Smartphone, HelpCircle, ArrowUpRight, LogOut } from 'lucide-react';
 import { cn } from '../utils/cn';
 import { useDashboard } from '../context/DashboardContext';
+import { useAuth } from '../context/AuthContext';
 import { StatusDot } from '../components/ui/StatusDot';
 
 const mainNavItems = [
-  { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-  { name: 'Multi-Model Feed', path: '/predictions', icon: Activity },
-  { name: 'IoT Telemetry Stream', path: '/stream', icon: Radio },
-  { name: 'Feature Drift', path: '/monitoring', icon: PieChart },
-  { name: 'Field Alerts', path: '/alerts', icon: Bell },
+  { name: 'Dashboard', path: '/admin', icon: LayoutDashboard },
+  { name: 'Multi-Model Feed', path: '/admin/predictions', icon: Activity },
+  { name: 'IoT Telemetry Stream', path: '/admin/stream', icon: Radio },
+  { name: 'Feature Drift', path: '/admin/monitoring', icon: PieChart },
+  { name: 'Field Alerts', path: '/admin/alerts', icon: Bell },
 ];
 
 const generalNavItems = [
-  { name: 'Settings', path: '/settings', icon: Settings },
+  { name: 'Settings', path: '/admin/settings', icon: Settings },
 ];
+
 
 export const Sidebar = ({ isOpen, setisOpen }) => {
   const { systemHealth, isPipelineActive } = useDashboard();
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login', { replace: true });
+  };
+
   const allHealthy = systemHealth
     ? Object.values(systemHealth).filter(v => typeof v === 'boolean').every(Boolean)
     : true;
+
 
   return (
     <aside
@@ -48,7 +59,8 @@ export const Sidebar = ({ isOpen, setisOpen }) => {
               <NavLink
                 key={item.name}
                 to={item.path}
-                end={item.path === '/'}
+                end={item.path === '/admin'}
+
                 onClick={() => { if (window.innerWidth < 1024) setisOpen(false); }}
                 className={({ isActive }) =>
                   cn(
@@ -98,9 +110,18 @@ export const Sidebar = ({ isOpen, setisOpen }) => {
                 <span>{item.name}</span>
               </NavLink>
             ))}
+
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-rose-500 hover:text-rose-400 hover:bg-rose-500/10 transition-all text-left"
+            >
+              <LogOut className="w-5 h-5 flex-shrink-0" />
+              <span>Logout</span>
+            </button>
           </nav>
         </div>
       </div>
+
 
       {/* Bottom Promo Card (Donezo Style) */}
       <div className="space-y-4">
