@@ -22,24 +22,40 @@ export const FarmerLayout = () => {
   const navigate = useNavigate();
   const [profile, setProfile] = useState(null);
   const [summary, setSummary] = useState(null);
+  const [alertsData, setAlertsData] = useState({ count: 0, unread_count: 0, alerts: [] });
+  const [sensorStatus, setSensorStatus] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [alertOpen, setAlertOpen] = useState(false);
 
+  const loadFarmerData = async () => {
+    try {
+      const [profData, sumData, alData, senData] = await Promise.all([
+        FarmerService.getProfile(),
+        FarmerService.getSummary(),
+        FarmerService.getFarmerAlerts(),
+        FarmerService.getSensorStatus()
+      ]);
+      setProfile(profData);
+      setSummary(sumData);
+      if (alData) setAlertsData(alData);
+      if (senData?.sensors) setSensorStatus(senData.sensors);
+    } catch (err) {
+      console.warn('Farmer data load warning:', err);
+    }
+  };
+
   useEffect(() => {
-    const loadFarmerData = async () => {
-      try {
-        const [profData, sumData] = await Promise.all([
-          FarmerService.getProfile(),
-          FarmerService.getSummary()
-        ]);
-        setProfile(profData);
-        setSummary(sumData);
-      } catch (err) {
-        console.warn('Farmer data load warning:', err);
-      }
-    };
     loadFarmerData();
   }, []);
+
+  const handleMarkRead = async (alertId) => {
+    try {
+      await FarmerService.markAlertRead(alertId);
+      await loadFarmerData();
+    } catch (e) {
+      console.warn('Mark read warning:', e);
+    }
+  };
 
   const handleLogout = () => {
     logout();
@@ -53,6 +69,8 @@ export const FarmerLayout = () => {
     { name: 'Yield Prediction', path: '/farmer/yield', icon: TrendingUp, color: 'text-cyan-400', bg: 'bg-cyan-500/10' },
     { name: 'Farmer Profile', path: '/farmer/profile', icon: User, color: 'text-purple-400', bg: 'bg-purple-500/10' },
   ];
+
+  const onlineSensorsCount = sensorStatus.filter(s => s.status === 'ONLINE').length;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
@@ -91,8 +109,10 @@ export const FarmerLayout = () => {
           >
             <Bell className="w-4 h-4 text-amber-400" />
             <span className="hidden sm:inline">Advisories</span>
-            {summary?.alerts_count > 0 && (
-              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping absolute top-1.5 right-1.5" />
+            {alertsData.unread_count > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-slate-950">
+                {alertsData.unread_count}
+              </span>
             )}
           </button>
 
@@ -120,7 +140,7 @@ export const FarmerLayout = () => {
       {/* Advisories Popover Modal */}
       {alertOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex justify-end p-4">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-amber-400" />
@@ -131,20 +151,32 @@ export const FarmerLayout = () => {
               </button>
             </div>
             <div className="space-y-3">
-              <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm">
-                <div className="font-semibold mb-1 flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-amber-400" />
-                  Irrigation Moisture Status
-                </div>
-                {summary?.active_alert || 'Soil moisture is currently at 28.5%. Water recommended in 12 hours.'}
-              </div>
-              <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-200 text-sm">
-                <div className="font-semibold mb-1 flex items-center gap-2">
-                  <Sprout className="w-4 h-4 text-emerald-400" />
-                  Crop Health Index
-                </div>
-                Your Paddy crop condition is healthy. Weather forecast predicts light rain in 48 hours.
-              </div>
+              {alertsData.alerts.length > 0 ? (
+                alertsData.alerts.map((al) => (
+                  <div key={al.id} className={`p-4 rounded-xl border text-sm space-y-1 ${
+                    al.severity === 'HIGH' ? 'bg-amber-500/10 border-amber-500/30 text-amber-200' : 'bg-slate-800/60 border-slate-700 text-slate-300'
+                  }`}>
+                    <div className="flex items-center justify-between font-semibold">
+                      <span className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-amber-400" />
+                        {al.alert_type} ({al.field_id})
+                      </span>
+                      {!al.is_read && (
+                        <button
+                          onClick={() => handleMarkRead(al.id)}
+                          className="text-[10px] font-bold text-emerald-400 hover:underline"
+                        >
+                          Mark Read
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-xs">{al.message}</p>
+                    <div className="text-[10px] text-slate-500">{al.created_at}</div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center text-xs text-slate-500 py-4">No active field alerts.</div>
+              )}
             </div>
             <button
               onClick={() => setAlertOpen(false)}
@@ -194,14 +226,14 @@ export const FarmerLayout = () => {
             </div>
           </div>
 
-          {/* Sandboxed Sensors Status Pill */}
+          {/* Real Sensors Status Pill */}
           <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800/80 text-xs">
             <div className="flex items-center justify-between text-slate-400 mb-1">
-              <span className="font-semibold">Sensors (Sandboxed)</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="font-semibold">IoT Telemetry Nodes</span>
+              <span className={`w-2 h-2 rounded-full ${onlineSensorsCount > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
             </div>
-            <div className="text-[11px] text-slate-300">
-              3 Telemetry Nodes Streaming
+            <div className="text-[11px] text-slate-300 font-mono">
+              {onlineSensorsCount > 0 ? `${onlineSensorsCount} Node(s) ONLINE` : 'Sensors Standby'}
             </div>
           </div>
         </aside>
@@ -214,3 +246,4 @@ export const FarmerLayout = () => {
     </div>
   );
 };
+

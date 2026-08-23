@@ -3,6 +3,7 @@ __pycache__/
 *.py[codz]
 *$py.class
 /mlruns/
+/models_saved/
 # C extensions
 *.so
 
@@ -556,5 +557,4 @@ yarn-error.log*
 next-env.d.ts
 
 /mlruns/
-/Documentations/
-*.pdf
+*.pkl

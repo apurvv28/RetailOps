@@ -138,15 +138,20 @@ export const Overview = () => {
         <div className="p-6 rounded-3xl bg-white dark:bg-[#0E1411] border border-slate-200/80 dark:border-emerald-950/60 shadow-sm flex flex-col justify-between min-h-[170px]">
           <div className="flex items-center justify-between">
             <span className="text-sm font-bold text-slate-800 dark:text-slate-200">Feature Drift Status</span>
-            <div className="w-9 h-9 rounded-full bg-emerald-100 dark:bg-emerald-950/40 flex items-center justify-center">
-              <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+            <div className={`w-9 h-9 rounded-full flex items-center justify-center ${driftStatus?.dataset_drift ? 'bg-rose-100 dark:bg-rose-950/40' : 'bg-emerald-100 dark:bg-emerald-950/40'}`}>
+              <ShieldCheck className={`w-5 h-5 ${driftStatus?.dataset_drift ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`} />
             </div>
           </div>
           <div>
-            <span className="text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 tracking-tight">Stable</span>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Zero dataset drift detected</p>
+            <span className={`text-3xl font-extrabold tracking-tight ${driftStatus?.dataset_drift ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
+              {driftStatus?.dataset_drift ? 'Drift Detected' : 'Stable'}
+            </span>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              {driftStatus?.dataset_drift ? `${driftStatus?.drifted_columns_count || 0} features drifted` : 'Zero dataset drift detected'}
+            </p>
           </div>
         </div>
+
       </div>
 
       {/* SECTION 1: Current Version Model Accuracies */}

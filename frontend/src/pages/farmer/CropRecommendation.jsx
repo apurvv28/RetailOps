@@ -12,16 +12,8 @@ export const CropRecommendation = () => {
   const [rainfall, setRainfall] = useState(202.9);
 
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState({
-    recommended_crop: 'rice',
-    confidence: 0.94,
-    top_3_recommendations: [
-      { crop: 'rice', confidence: 0.94 },
-      { crop: 'jute', confidence: 0.04 },
-      { crop: 'maize', confidence: 0.02 }
-    ],
-    llm_explanation: 'Rice thrives in clayey/loamy soil with high nitrogen (90 kg/ha) and high seasonal rainfall (>200 mm). The current climate and moisture levels provide ideal growing conditions.'
-  });
+  const [result, setResult] = useState(null);
+
 
   const handlePredict = async () => {
     setLoading(true);
@@ -68,69 +60,87 @@ export const CropRecommendation = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Recommendation Results Card */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-xl">
-          <div>
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              Top Recommended Crop
-            </span>
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-xl flex flex-col justify-between">
+          {!result ? (
+            <div className="flex flex-col items-center justify-center h-full min-h-[300px] text-center space-y-4 p-6 border-2 border-dashed border-slate-800 rounded-2xl">
+              <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center">
+                <Sprout className="w-8 h-8" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white mb-1">Engine Ready</h3>
+                <p className="text-slate-400 text-xs max-w-xs">
+                  Adjust soil & weather parameters on the right and click "Recommend Crop" to run the ML recommendation model.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div>
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  Top Recommended Crop
+                </span>
 
-            <div className="mt-4 p-6 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center font-bold text-2xl uppercase">
-                  🌾
-                </div>
-                <div>
-                  <h3 className="text-2xl font-extrabold text-white capitalize">{result.recommended_crop}</h3>
-                  <div className="text-xs text-emerald-400 font-semibold mt-0.5">
-                    {Math.round(result.confidence * 100)}% Match Confidence
+                <div className="mt-4 p-6 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center font-bold text-2xl uppercase">
+                      🌾
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-extrabold text-white capitalize">{result.recommended_crop}</h3>
+                      <div className="text-xs text-emerald-400 font-semibold mt-0.5">
+                        {Math.round((result.confidence || 0.9) * 100)}% Match Confidence
+                      </div>
+                    </div>
                   </div>
+                  <CheckCircle2 className="w-8 h-8 text-emerald-400" />
                 </div>
               </div>
-              <CheckCircle2 className="w-8 h-8 text-emerald-400" />
-            </div>
-          </div>
 
-          {/* Top 3 Crop Breakdown */}
-          <div>
-            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
-              Alternative Top 3 Suitable Crops
-            </h4>
-            <div className="space-y-2.5">
-              {result.top_3_recommendations?.map((item, idx) => (
-                <div key={idx} className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="w-6 h-6 rounded-lg bg-slate-800 text-slate-300 font-bold text-xs flex items-center justify-center">
-                      #{idx + 1}
-                    </span>
-                    <span className="font-semibold text-white capitalize">{item.crop}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-24 bg-slate-800 rounded-full h-2">
-                      <div
-                        className="bg-emerald-500 h-2 rounded-full"
-                        style={{ width: `${Math.round(item.confidence * 100)}%` }}
-                      />
+              {/* Top 3 Crop Breakdown */}
+              <div>
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
+                  Alternative Top 3 Suitable Crops
+                </h4>
+                <div className="space-y-2.5">
+                  {result.top_3_recommendations?.map((item, idx) => (
+                    <div key={idx} className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className="w-6 h-6 rounded-lg bg-slate-800 text-slate-300 font-bold text-xs flex items-center justify-center">
+                          #{idx + 1}
+                        </span>
+                        <span className="font-semibold text-white capitalize">{item.crop}</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="w-24 bg-slate-800 rounded-full h-2">
+                          <div
+                            className="bg-emerald-500 h-2 rounded-full"
+                            style={{ width: `${Math.round(item.confidence * 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-xs font-bold text-slate-300 w-10 text-right">
+                          {Math.round(item.confidence * 100)}%
+                        </span>
+                      </div>
                     </div>
-                    <span className="text-xs font-bold text-slate-300 w-10 text-right">
-                      {Math.round(item.confidence * 100)}%
-                    </span>
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
-
-          {/* AI Explanation Box */}
-          <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 space-y-2">
-            <div className="flex items-center gap-2 font-bold text-sm text-indigo-300">
-              <Sparkles className="w-4 h-4 text-indigo-400" />
-              NVIDIA Nemotron AI Insights
-            </div>
-            <p className="text-xs text-indigo-200 leading-relaxed">
-              {result.llm_explanation}
-            </p>
-          </div>
+              </div>
+              {/* AI Explanation Box */}
+              {result.llm_explanation && (
+                <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 space-y-2">
+                  <div className="flex items-center gap-2 font-bold text-sm text-indigo-300">
+                    <Sparkles className="w-4 h-4 text-indigo-400" />
+                    NVIDIA Nemotron AI Insights
+                  </div>
+                  <p className="text-xs text-indigo-200 leading-relaxed">
+                    {result.llm_explanation}
+                  </p>
+                </div>
+              )}
+            </>
+          )}
         </div>
+
 
         {/* Soil & Climate Input Form */}
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 
 class FeatureContribution(BaseModel):
@@ -9,13 +9,15 @@ class FeatureContribution(BaseModel):
 # 1. Irrigation Risk Schemas
 class IrrigationPredictionRequest(BaseModel):
     field_id: Optional[str] = "FIELD_001"
-    nitrogen: float = 50.0
-    phosphorus: float = 30.0
-    potassium: float = 30.0
-    temperature: float = 28.5
-    humidity: float = 65.0
-    soil_moisture: float = 25.0
-    rainfall: float = 0.0
+    nitrogen: float = Field(default=50.0, ge=0, le=200, description="Nitrogen content (kg/ha)")
+    phosphorus: float = Field(default=30.0, ge=0, le=200, description="Phosphorus content (kg/ha)")
+    potassium: float = Field(default=30.0, ge=0, le=200, description="Potassium content (kg/ha)")
+    temperature: float = Field(default=28.5, ge=0.0, le=60.0, description="Ambient temperature (°C)")
+    humidity: float = Field(default=65.0, ge=0.0, le=100.0, description="Relative humidity (%)")
+    soil_moisture: float = Field(default=25.0, ge=0.0, le=100.0, description="Soil moisture content (%)")
+    rainfall: float = Field(default=0.0, ge=0.0, le=500.0, description="Expected rainfall (mm)")
+    ph: float = Field(default=6.5, ge=3.0, le=10.0, description="Soil pH")
+
 
 class IrrigationPredictionResponse(BaseModel):
     field_id: str
@@ -27,13 +29,13 @@ class IrrigationPredictionResponse(BaseModel):
 # 2. Crop Recommendation Schemas
 class CropPredictionRequest(BaseModel):
     field_id: Optional[str] = "FIELD_001"
-    N: float = 90.0
-    P: float = 42.0
-    K: float = 43.0
-    temperature: float = 20.8
-    humidity: float = 82.0
-    ph: float = 6.5
-    rainfall: float = 202.9
+    N: float = Field(default=90.0, ge=0, le=200, description="Nitrogen (kg/ha)")
+    P: float = Field(default=42.0, ge=0, le=200, description="Phosphorus (kg/ha)")
+    K: float = Field(default=43.0, ge=0, le=200, description="Potassium (kg/ha)")
+    temperature: float = Field(default=20.8, ge=0.0, le=60.0, description="Ambient temperature (°C)")
+    humidity: float = Field(default=82.0, ge=0.0, le=100.0, description="Relative humidity (%)")
+    ph: float = Field(default=6.5, ge=3.0, le=10.0, description="Soil pH")
+    rainfall: float = Field(default=202.9, ge=0.0, le=500.0, description="Annual rainfall (mm)")
 
 class CropRecommendationItem(BaseModel):
     crop: str
@@ -50,14 +52,14 @@ class CropPredictionResponse(BaseModel):
 # 3. Fertilizer Recommendation Schemas
 class FertilizerPredictionRequest(BaseModel):
     field_id: Optional[str] = "FIELD_001"
-    temperature: float = 26.0
-    humidity: float = 52.0
-    moisture: float = 38.0
+    temperature: float = Field(default=26.0, ge=0.0, le=60.0, description="Ambient temperature (°C)")
+    humidity: float = Field(default=52.0, ge=0.0, le=100.0, description="Relative humidity (%)")
+    moisture: float = Field(default=38.0, ge=0.0, le=100.0, description="Soil moisture (%)")
     soil_type: str = "Clayey"
     crop_type: str = "Paddy"
-    nitrogen: float = 12.0
-    phosphorus: float = 35.0
-    potassium: float = 10.0
+    nitrogen: float = Field(default=12.0, ge=0, le=200, description="Nitrogen (kg/ha)")
+    phosphorus: float = Field(default=35.0, ge=0, le=200, description="Phosphorus (kg/ha)")
+    potassium: float = Field(default=10.0, ge=0, le=200, description="Potassium (kg/ha)")
 
 class FertilizerPredictionResponse(BaseModel):
     field_id: str
@@ -67,20 +69,25 @@ class FertilizerPredictionResponse(BaseModel):
     llm_explanation: Optional[str] = None
     decision_log_id: Optional[int] = None
 
-# 4. CropNet Yield Prediction Schemas
+# 4. Crop Yield Prediction Schemas
 class YieldPredictionRequest(BaseModel):
     field_id: Optional[str] = "FIELD_001"
-    year: int = 2024
-    state_name: str = "ALABAMA"
-    county_name: str = "BALDWIN"
-    commodity_desc: str = "CORN"
-    production_bu: float = 1177000.0
+    nitrogen: float = Field(default=90.0, ge=0.0, le=200.0, description="Nitrogen (kg/ha)")
+    phosphorus: float = Field(default=42.0, ge=0.0, le=200.0, description="Phosphorus (kg/ha)")
+    potassium: float = Field(default=43.0, ge=0.0, le=200.0, description="Potassium (kg/ha)")
+    temperature: float = Field(default=25.0, ge=0.0, le=60.0, description="Ambient temperature (°C)")
+    humidity: float = Field(default=70.0, ge=0.0, le=100.0, description="Relative humidity (%)")
+    soil_moisture: float = Field(default=35.0, ge=0.0, le=100.0, description="Soil moisture (%)")
+    rainfall: float = Field(default=200.0, ge=0.0, le=500.0, description="Annual rainfall (mm)")
+    ph: float = Field(default=6.5, ge=3.0, le=10.0, description="Soil pH")
+    crop_type: str = Field(default="rice", description="Crop type name")
 
 class YieldPredictionResponse(BaseModel):
     field_id: str
-    predicted_yield_bu_per_acre: float
-    unit: str = "BU / ACRE"
+    predicted_yield_tonnes_per_hectare: float
+    unit: str = "tonnes / hectare"
     decision_log_id: Optional[int] = None
+
 
 # Generic & Monitoring Schemas
 class OutcomeRequest(BaseModel):

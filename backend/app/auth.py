@@ -141,9 +141,11 @@ def fetch_or_create_user(google_id: str, email: str, name: str, picture: str = "
             else:
                 # Assign role: admin@agritech.com defaults to admin, otherwise requested_role
                 role = "admin" if email.lower() == "admin@agritech.com" else requested_role
+                # Tag demo users (google_id prefix 'demo-') so they can be cleaned up separately
+                is_demo = 1 if google_id.startswith("demo-") else 0
                 cursor.execute(
-                    "INSERT INTO users (google_id, email, name, picture, role) VALUES (?, ?, ?, ?, ?)",
-                    (google_id, email, name, picture, role)
+                    "INSERT INTO users (google_id, email, name, picture, role, is_demo) VALUES (?, ?, ?, ?, ?, ?)",
+                    (google_id, email, name, picture, role, is_demo)
                 )
                 user_id = cursor.lastrowid
                 conn.commit()
@@ -169,9 +171,10 @@ def fetch_or_create_user(google_id: str, email: str, name: str, picture: str = "
                 user = {"id": res[0], "google_id": res[1], "email": res[2], "name": res[3], "picture": res[4], "role": res[5]}
             else:
                 role = "admin" if email.lower() == "admin@agritech.com" else requested_role
+                is_demo = 1 if google_id.startswith("demo-") else 0
                 insert_res = conn.execute(
-                    text("INSERT INTO users (google_id, email, name, picture, role) VALUES (:gid, :email, :name, :pic, :role) RETURNING id, google_id, email, name, picture, role"),
-                    {"gid": google_id, "email": email, "name": name, "pic": picture, "role": role}
+                    text("INSERT INTO users (google_id, email, name, picture, role, is_demo) VALUES (:gid, :email, :name, :pic, :role, :is_demo) RETURNING id, google_id, email, name, picture, role"),
+                    {"gid": google_id, "email": email, "name": name, "pic": picture, "role": role, "is_demo": is_demo}
                 ).fetchone()
                 user = {"id": insert_res[0], "google_id": insert_res[1], "email": insert_res[2], "name": insert_res[3], "picture": insert_res[4], "role": insert_res[5]}
 

@@ -19,6 +19,8 @@ export const FarmerProfile = () => {
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  const [weather, setWeather] = useState(null);
+
   useEffect(() => {
     const fetchProfile = async () => {
       try {
@@ -37,6 +39,26 @@ export const FarmerProfile = () => {
     };
     fetchProfile();
   }, []);
+
+  useEffect(() => {
+    const fetchWeather = async () => {
+      try {
+        const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,rain`);
+        const data = await res.json();
+        if (data && data.current) {
+          setWeather({
+            temp: data.current.temperature_2m,
+            humidity: data.current.relative_humidity_2m,
+            rain: data.current.rain
+          });
+        }
+      } catch (e) {
+        console.warn('Weather fetch notice:', e);
+      }
+    };
+    if (latitude && longitude) fetchWeather();
+  }, [latitude, longitude]);
+
 
   const handleDetectGPS = () => {
     if (navigator.geolocation) {
@@ -93,9 +115,26 @@ export const FarmerProfile = () => {
         <div className="flex items-center gap-2 text-purple-400 font-semibold text-sm mb-1">
           <User className="w-4 h-4" /> Farmer Profile & Infrastructure Tab
         </div>
-        <h2 className="text-2xl font-bold text-white tracking-tight">Farm Settings & IoT Telemetry Nodes</h2>
         <p className="text-slate-400 text-sm">Configure farm GPS location, active crops planted, and sandboxed sensor connections</p>
       </div>
+
+      {/* Weather Card */}
+
+      {weather && (
+        <div className="bg-gradient-to-r from-sky-900/40 to-indigo-900/40 border border-sky-500/30 rounded-3xl p-5 shadow-xl flex items-center justify-between">
+          <div>
+            <div className="text-xs font-bold text-sky-400 uppercase tracking-wider">Live Local Weather (Open-Meteo GPS Forecast)</div>
+            <div className="text-2xl font-black text-white mt-1">{weather.temp}°C</div>
+            <div className="text-xs text-slate-300">Humidity: {weather.humidity}% | Rain: {weather.rain} mm</div>
+          </div>
+          <div className="text-right">
+            <span className="px-3 py-1 bg-sky-500/20 text-sky-300 border border-sky-500/40 rounded-xl text-xs font-bold font-mono">
+              GPS Synchronized
+            </span>
+          </div>
+        </div>
+      )}
+
 
       <form onSubmit={handleSave} className="space-y-6">
         {/* Section 1: Farm Identity & GPS Location */}

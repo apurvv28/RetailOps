@@ -1,5 +1,7 @@
+version: '3.8'
+
 services:
-  # 1. FastAPI Backend (Multi-stage Python ML Service)
+  # 1. FastAPI Backend & Streaming ML Service
   backend:
     build:
       context: .
@@ -8,24 +10,28 @@ services:
     container_name: krishiloop-backend
     ports:
       - "8000:8000"
+    env_file:
+      - ./backend/.env
     environment:
       - DATABASE_URL=sqlite:////app/backend/retail_ops.db
-      - API_KEY=krishiloop-secret-key
-      - REFRESH_INTERVAL=3000
+      - API_KEY=${API_KEY:-dev-secret-key-change-in-prod}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:3000,http://localhost}
+      - AUTO_START_STREAMING=true
     volumes:
       - ./backend/data:/app/backend/data
       - ./backend/retail_ops.db:/app/backend/retail_ops.db
+      - ./backend/mlruns:/app/backend/mlruns
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 15s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     restart: always
     networks:
       - krishiloop-net
 
-  # 2. React Production Frontend (Multi-stage Nginx Container)
+  # 2. React Production Frontend (Nginx Container)
   frontend:
     build:
       context: .
@@ -45,45 +51,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
-    restart: always
-    networks:
-      - krishiloop-net
-
-  # 3. Telemetry Ingestion Consumer Service
-  streaming-consumer:
-    build:
-      context: .
-      dockerfile: streaming/Dockerfile
-      target: runner
-    container_name: krishiloop-consumer
-    command: ["python", "backend/ingestion/consumer.py"]
-    environment:
-      - DATABASE_URL=sqlite:////app/backend/retail_ops.db
-    volumes:
-      - ./backend/retail_ops.db:/app/backend/retail_ops.db
-      - ./backend/data:/app/backend/data
-    depends_on:
-      backend:
-        condition: service_healthy
-    restart: always
-    networks:
-      - krishiloop-net
-
-  # 4. Continuous Multi-Field IoT Telemetry Producer Service
-  streaming-producer:
-    build:
-      context: .
-      dockerfile: streaming/Dockerfile
-      target: runner
-    container_name: krishiloop-producer
-    command: ["python", "backend/ingestion/producer.py", "--continuous", "--delay", "0.5"]
-    environment:
-      - DATABASE_URL=sqlite:////app/backend/retail_ops.db
-    volumes:
-      - ./backend/retail_ops.db:/app/backend/retail_ops.db
-      - ./backend/data:/app/backend/data
-    depends_on:
-      - streaming-consumer
     restart: always
     networks:
       - krishiloop-net

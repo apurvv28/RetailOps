@@ -1,14 +1,14 @@
 {
   "irrigation-risk": {
     "model_name": "irrigation-risk",
-    "run_id": "2b2bd032b41c40f1b2d5b9daf4e578ce",
-    "metric": 0.9952487414581859,
+    "run_id": "7388abbe68cd41c5b59b8f9d73301040",
+    "metric": 0.9942403767011848,
     "metric_name": "val_roc_auc",
-    "overfit_gap": 0.0011783636085217486
+    "overfit_gap": 0.0026699270715694334
   },
   "crop-recommender": {
     "model_name": "crop-recommender",
-    "run_id": "0b28f56d20a741cf85eee116b3a7e8c7",
+    "run_id": "c9a28287f5c54412917be57fe69b1f01",
     "metric": 0.9345277888619954,
     "metric_name": "val_macro_f1",
     "classes": {
@@ -39,7 +39,7 @@
   },
   "fertilizer-recommender": {
     "model_name": "fertilizer-recommender",
-    "run_id": "56eb4ce8738a49819848b893930adeec",
+    "run_id": "366d90cbe04d4f2791a8df1839c0b85c",
     "metric": 0.6266213729233263,
     "metric_name": "val_macro_f1",
     "classes": {
@@ -57,9 +57,10 @@
   },
   "yield-predictor": {
     "model_name": "yield-predictor",
-    "run_id": "8f0a858dfac3450ba4bee208f619a37f",
-    "metric": 0.874743437013537,
+    "run_id": "7adc863215c3453aadc887970aa3ec29",
+    "metric": 0.9900324698435389,
     "metric_name": "val_r2",
-    "overfit_gap": 0.001801346282538363
+    "val_rmse": 1.4554536421818463,
+    "overfit_gap": 0.001960054515913412
   }
 }

@@ -9,8 +9,10 @@ from dotenv import load_dotenv
 dotenv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
 load_dotenv(dotenv_path, override=True)
 
+os.environ["MLFLOW_ALLOW_FILE_STORE"] = "true"
+
 def get_mlflow_uri():
-    uri = os.getenv("MLFLOW_TRACKING_URI", "sqlite:///mlruns.db")
+    uri = os.getenv("MLFLOW_TRACKING_URI", "sqlite:///mlruns_v2.db")
     if uri.startswith("sqlite:///"):
         db_name = uri.replace("sqlite:///", "")
         if not os.path.isabs(db_name):
@@ -20,6 +22,7 @@ def get_mlflow_uri():
     return uri
 
 MLFLOW_TRACKING_URI = get_mlflow_uri()
+
 
 # Multi-model global instances
 irrigation_model = None
@@ -55,39 +58,102 @@ class FallbackYieldModel:
 
 def load_production_models():
     global irrigation_model, crop_model, fertilizer_model, yield_model, model_version
-    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-    
-    # 1. Load Irrigation Model
     try:
-        irrigation_model = mlflow.pyfunc.load_model("models:/irrigation-risk/Production")
-        print("Irrigation Risk model loaded from MLflow Production stage.")
+        mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     except Exception as e:
-        print(f"Warning: Loading Irrigation model from MLflow failed: {e}. Using fallback.")
-        irrigation_model = FallbackIrrigationModel()
+        print(f"MLflow tracking setup notice: {e}")
+    
+    backend_dir = os.path.dirname(os.path.dirname(__file__))
+    saved_models_dir = os.path.join(backend_dir, "models_saved")
+
+    # 1. Load Irrigation Model
+    loaded_irrigation = False
+    local_irr_path = os.path.join(saved_models_dir, "irrigation_model.pkl")
+    if os.path.exists(local_irr_path):
+        try:
+            import joblib
+            irrigation_model = joblib.load(local_irr_path)
+            loaded_irrigation = True
+            print("Irrigation Risk model loaded successfully from local saved_models directory.")
+        except Exception as e:
+            print(f"Notice: Loading local irrigation model failed: {e}")
+
+    if not loaded_irrigation:
+        try:
+            irrigation_model = mlflow.pyfunc.load_model("models:/irrigation-risk/Production")
+            print("Irrigation Risk model loaded from MLflow Production stage.")
+        except Exception as e:
+            print(f"Warning: Loading Irrigation model from MLflow failed: {e}. Using fallback.")
+            irrigation_model = FallbackIrrigationModel()
+
 
     # 2. Load Crop Recommendation Model
-    try:
-        crop_model = mlflow.pyfunc.load_model("models:/crop-recommender/Production")
-        print("Crop Recommendation model loaded from MLflow Production stage.")
-    except Exception as e:
-        print(f"Warning: Loading Crop model from MLflow failed: {e}. Using fallback.")
-        crop_model = FallbackCropModel()
+    loaded_crop = False
+    local_crop_path = os.path.join(saved_models_dir, "crop_model.pkl")
+    if os.path.exists(local_crop_path):
+        try:
+            import joblib
+            crop_model = joblib.load(local_crop_path)
+            loaded_crop = True
+            print("Crop Recommendation model loaded successfully from local saved_models directory.")
+        except Exception as e:
+            print(f"Notice: Loading local crop model failed: {e}")
+
+    if not loaded_crop:
+        try:
+            crop_model = mlflow.pyfunc.load_model("models:/crop-recommender/Production")
+            print("Crop Recommendation model loaded from MLflow Production stage.")
+        except Exception as e:
+            print(f"Warning: Loading Crop model from MLflow failed: {e}. Using fallback.")
+            crop_model = FallbackCropModel()
 
     # 3. Load Fertilizer Recommendation Model
-    try:
-        fertilizer_model = mlflow.pyfunc.load_model("models:/fertilizer-recommender/Production")
-        print("Fertilizer Recommendation model loaded from MLflow Production stage.")
-    except Exception as e:
-        print(f"Warning: Loading Fertilizer model from MLflow failed: {e}. Using fallback.")
-        fertilizer_model = FallbackFertilizerModel()
+    loaded_fert = False
+    local_fert_path = os.path.join(saved_models_dir, "fertilizer_model.pkl")
+    if os.path.exists(local_fert_path):
+        try:
+            import joblib
+            fertilizer_model = joblib.load(local_fert_path)
+            loaded_fert = True
+            print("Fertilizer Recommendation model loaded successfully from local saved_models directory.")
+        except Exception as e:
+            print(f"Notice: Loading local fertilizer model failed: {e}")
 
-    # 4. Load CropNet Yield Prediction Model
-    try:
-        yield_model = mlflow.pyfunc.load_model("models:/yield-predictor/Production")
-        print("Yield Prediction model loaded from MLflow Production stage.")
-    except Exception as e:
-        print(f"Warning: Loading Yield model from MLflow failed: {e}. Using fallback.")
-        yield_model = FallbackYieldModel()
+    if not loaded_fert:
+        try:
+            fertilizer_model = mlflow.pyfunc.load_model("models:/fertilizer-recommender/Production")
+            print("Fertilizer Recommendation model loaded from MLflow Production stage.")
+        except Exception as e:
+            print(f"Warning: Loading Fertilizer model from MLflow failed: {e}. Using fallback.")
+            fertilizer_model = FallbackFertilizerModel()
+
+
+    # 4. Load CropNet / India Yield Prediction Model
+    loaded_yield = False
+    local_yield_path = os.path.join(saved_models_dir, "yield_model.pkl")
+    if os.path.exists(local_yield_path):
+        try:
+            import joblib
+            yield_model = joblib.load(local_yield_path)
+            loaded_yield = True
+            print("Yield Prediction model loaded successfully from local saved_models directory.")
+        except Exception as e:
+            print(f"Notice: Loading local yield model failed: {e}")
+
+    if not loaded_yield:
+        try:
+            yield_model = mlflow.pyfunc.load_model("models:/yield-predictor/Production")
+            print("Yield Prediction model loaded from MLflow Production stage.")
+        except Exception as e:
+            print(f"Warning: Loading Yield model from MLflow failed: {e}. Using fallback.")
+            yield_model = FallbackYieldModel()
+
+
+def reload_production_models():
+    """Hot-reloads production ML models from disk/S3 directly into memory."""
+    print("Hot-reloading production models into serving memory...")
+    load_production_models()
+    return True
 
 def compute_top_irrigation_features(input_df: pd.DataFrame) -> list:
     feature_cols = ["temperature", "humidity", "soil_moisture", "rainfall", "nitrogen", "phosphorus", "potassium"]
@@ -101,4 +167,5 @@ def compute_top_irrigation_features(input_df: pd.DataFrame) -> list:
             importance = round(abs(val) * weight, 4)
             results.append({"feature": col, "value": round(val, 4), "importance": importance})
     results.sort(key=lambda x: x["importance"], reverse=True)
-    return results[:3]
+    return results[:3]
+

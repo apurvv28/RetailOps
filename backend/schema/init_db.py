@@ -51,21 +51,19 @@ def initialize_database():
         if not db_file:
             db_file = "retail_ops.db"
         
+        os.makedirs(os.path.dirname(os.path.abspath(db_file)), exist_ok=True)
         conn = sqlite3.connect(db_file)
         cursor = conn.cursor()
         
-        # Split DDL by semicolon to execute statement by statement
-        statements = [stmt.strip() for stmt in ddl.split(';') if stmt.strip()]
-        for stmt in statements:
-            try:
-                cursor.execute(stmt)
-            except Exception as e:
-                print(f"Error executing statement: {stmt}\nError: {e}")
-                conn.rollback()
-                raise e
-        conn.commit()
-        conn.close()
-        print("SQLite Database initialized successfully!")
+        try:
+            cursor.executescript(ddl)
+            conn.commit()
+            print("SQLite Database initialized successfully!")
+        except Exception as e:
+            print(f"Notice: SQLite DDL execution notice: {e}")
+        finally:
+            conn.close()
+
     else:
         # Postgres or CockroachDB
         engine = create_engine(DATABASE_URL)

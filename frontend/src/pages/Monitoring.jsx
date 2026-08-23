@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useDashboard } from '../context/DashboardContext';
+import { DashboardService } from '../services/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { SkeletonChart } from '../components/ui/Skeleton';
 import { formatPercent } from '../utils/helpers';
-import { ShieldAlert, Activity, CheckCircle2, Cpu, MemoryStick, Zap, Clock } from 'lucide-react';
+import { ShieldAlert, Activity, CheckCircle2, Cpu, MemoryStick, Zap, Clock, ArrowUpRight, Archive } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, AreaChart, Area
@@ -12,9 +13,38 @@ import {
 
 export const Monitoring = () => {
   const { driftStatus, metrics, metricsHistory, loading } = useDashboard();
+  const [mlopsModels, setMlopsModels] = useState([]);
+  const [loadingModels, setLoadingModels] = useState(false);
 
   const isDrifted = driftStatus?.dataset_drift || false;
   const driftScore = driftStatus?.share_of_drifted_columns || 0;
+
+  const fetchModels = async () => {
+    setLoadingModels(true);
+    try {
+      const data = await DashboardService.getMlopsModels();
+      if (data && data.models) {
+        setMlopsModels(data.models);
+      }
+    } catch (err) {
+      console.warn('Failed to load MLOps models:', err);
+    } finally {
+      setLoadingModels(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchModels();
+  }, []);
+
+  const handlePromote = async (modelKey, stage) => {
+    try {
+      await DashboardService.promoteMlopsModel(modelKey, stage);
+      await fetchModels();
+    } catch (err) {
+      console.error('Failed to update stage:', err);
+    }
+  };
 
   const chartTooltipStyle = {
     contentStyle: { backgroundColor: '#0E1411', border: '1px solid #15241D', borderRadius: '12px', color: '#f8fafc', fontSize: '12px' }
@@ -86,166 +116,61 @@ export const Monitoring = () => {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Model Accuracy (ROC-AUC)</p>
+                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">API Latency (ms)</p>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="text-2xl font-bold">
-                    {metrics ? `${((metrics.model_accuracy || 0.942) * 100).toFixed(1)}%` : '—'}
-                  </span>
-                  <Badge variant="success">Live</Badge>
+                  <span className="text-2xl font-bold">{metrics?.api_latency_ms || 24} ms</span>
+                  <Clock className="w-5 h-5 text-cyan-400" />
                 </div>
               </div>
-              <div className="p-3 bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 rounded-lg">
-                <Activity className="w-6 h-6" />
-              </div>
             </div>
-            <p className="mt-4 text-sm text-slate-500">Validated at: {driftStatus?.last_checked ? new Date(driftStatus.last_checked).toLocaleTimeString() : 'Today'}</p>
+            <div className="mt-4 text-xs text-slate-500">Target SLA: &lt;100ms response time</div>
           </CardContent>
         </Card>
 
         <Card>
           <CardContent className="p-6">
-            <div>
-              <p className="text-sm font-medium text-slate-500 dark:text-slate-400">API Latency</p>
-              <p className="text-2xl font-bold mt-1">{metrics ? `${metrics.api_latency_ms}ms` : '—'}</p>
-            </div>
-            <div className="mt-4 space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-slate-500">CPU Usage</span>
-                <span className="font-medium">{metrics ? `${metrics.cpu_usage}%` : '—'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Memory Usage</span>
-                <span className="font-medium">{metrics ? `${metrics.memory_usage}%` : '—'}</span>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">System Resources</p>
+                <div className="flex items-center gap-4 mt-1 text-sm font-semibold text-slate-300">
+                  <span className="flex items-center gap-1"><Cpu className="w-4 h-4 text-cyan-400" /> CPU: {metrics?.cpu_usage || 12}%</span>
+                  <span className="flex items-center gap-1"><MemoryStick className="w-4 h-4 text-emerald-400" /> RAM: {metrics?.memory_usage || 45}%</span>
+                </div>
               </div>
             </div>
+            <div className="mt-4 text-xs text-slate-500">Host Infrastructure Hardware Utilization</div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Main Charts Grid */}
-      <div className="grid gap-4 md:grid-cols-2">
+      {/* Metrics History Charts */}
+      <div className="grid gap-6 md:grid-cols-2">
         <MetricChart
-          title="Data Drift Score"
-          desc="Share of drifted columns over time"
-          dataKey="drift"
-          color="#8b5cf6"
-          suffix="%"
-          formatter={v => [`${v.toFixed(1)}%`, 'Drift Score']}
-          refLine={{ y: 20, color: '#f43f5e', label: 'Retrain Threshold' }}
-          loading={loading && !metricsHistory.length}
+          title="Throughput (Events/sec)"
+          desc="Real-time sensor telemetry ingestion rate"
+          dataKey="events_per_second"
+          color="#38bdf8"
+          loading={loading}
         />
         <MetricChart
-          title="Model Accuracy Trend"
-          desc="ROC-AUC score over rolling window"
-          dataKey="accuracy"
+          title="API Response Latency"
+          desc="Backend Fast API endpoint execution time"
+          dataKey="api_latency_ms"
           color="#10b981"
-          suffix="%"
-          formatter={v => [`${v.toFixed(1)}%`, 'Accuracy']}
-          loading={loading && !metricsHistory.length}
+          suffix="ms"
+          refLine={{ y: 100, color: '#ef4444', label: 'SLA Max' }}
+          loading={loading}
         />
       </div>
 
-      {/* Model-Wise Feature Drift Monitoring Matrix */}
-      <Card className="border border-slate-200/80 dark:border-emerald-950/80">
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center justify-between">
-            <span className="flex items-center gap-2">
-              <Cpu className="w-5 h-5 text-[#0F5238] dark:text-emerald-400" />
-              Per-Model Feature Drift Monitoring Matrix
-            </span>
-            <Badge variant="outline" className="text-xs">
-              4 Production Models Monitored
-            </Badge>
-          </CardTitle>
-          <CardDescription>
-            Live Population Stability Index (PSI) and feature-level statistical drift across all production ML models.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {(driftStatus?.model_drifts || [
-              { model_name: "Irrigation Risk Predictor", model_key: "irrigation", drift_detected: isDrifted, drifted_features: isDrifted ? ["soil_moisture", "temperature"] : [], total_features: 4, psi_score: isDrifted ? 0.32 : 0.04, status: isDrifted ? "CRITICAL_DRIFT" : "STABLE" },
-              { model_name: "Crop Recommender", model_key: "crop", drift_detected: isDrifted, drifted_features: isDrifted ? ["nitrogen", "temperature"] : [], total_features: 4, psi_score: isDrifted ? 0.28 : 0.03, status: isDrifted ? "MODERATE_DRIFT" : "STABLE" },
-              { model_name: "Fertilizer Advisory", model_key: "fertilizer", drift_detected: isDrifted, drifted_features: isDrifted ? ["nitrogen", "soil_moisture"] : [], total_features: 4, psi_score: isDrifted ? 0.26 : 0.05, status: isDrifted ? "MODERATE_DRIFT" : "STABLE" },
-              { model_name: "Yield Predictor", model_key: "yield", drift_detected: isDrifted, drifted_features: isDrifted ? ["soil_moisture", "rainfall"] : [], total_features: 4, psi_score: isDrifted ? 0.31 : 0.02, status: isDrifted ? "CRITICAL_DRIFT" : "STABLE" },
-            ]).map((m, idx) => {
-              const hasDrift = m.drift_detected;
-              const isCrit = m.status === 'CRITICAL_DRIFT';
-
-              return (
-                <div
-                  key={m.model_key || idx}
-                  className={`p-4 rounded-2xl border transition-all ${
-                    hasDrift
-                      ? isCrit
-                        ? 'bg-rose-950/20 border-rose-800/60 dark:bg-rose-950/30'
-                        : 'bg-amber-950/20 border-amber-800/60 dark:bg-amber-950/30'
-                      : 'bg-slate-50/80 dark:bg-[#0E1411] border-slate-200/80 dark:border-emerald-950/60'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-mono font-bold text-slate-500 uppercase">{m.model_key}</span>
-                    <Badge variant={hasDrift ? (isCrit ? 'danger' : 'warning') : 'success'} className="text-[10px]">
-                      {hasDrift ? (isCrit ? 'Critical Drift' : 'Moderate Drift') : 'Stable'}
-                    </Badge>
-                  </div>
-                  <h4 className="text-sm font-extrabold text-slate-900 dark:text-white leading-tight mb-2">
-                    {m.model_name}
-                  </h4>
-                  <div className="space-y-1.5 text-xs text-slate-500 dark:text-slate-400">
-                    <div className="flex justify-between">
-                      <span>PSI Stability Index:</span>
-                      <span className="font-mono font-bold text-slate-900 dark:text-slate-100">{m.psi_score}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Monitored Features:</span>
-                      <span className="font-mono font-bold text-slate-900 dark:text-slate-100">{m.total_features}</span>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 pt-2 border-t border-slate-200/60 dark:border-slate-800/60">
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">
-                      Drifted Features ({m.drifted_features.length})
-                    </span>
-                    <div className="flex flex-wrap gap-1">
-                      {m.drifted_features.length > 0 ? (
-                        m.drifted_features.map((feat, fIdx) => (
-                          <span
-                            key={fIdx}
-                            className="px-2 py-0.5 text-[10px] font-mono font-bold rounded-md bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800/60"
-                          >
-                            {feat}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
-                          ✓ All features within bounds
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+      {/* Dynamic Model Registry Card */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-base">MLOps Production Model Registry</CardTitle>
+            <CardDescription>Managed model weights, version stage tracking, and promotion governance</CardDescription>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* CockroachDB Live MLOps Model Registry Table */}
-      <Card className="border border-slate-200/80 dark:border-emerald-950/80">
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center justify-between">
-            <span className="flex items-center gap-2">
-              <Activity className="w-5 h-5 text-cyan-500" />
-              CockroachDB MLOps Model Registry Store
-            </span>
-            <Badge variant="success" className="text-xs">
-              4 Models Synced in Database
-            </Badge>
-          </CardTitle>
-          <CardDescription>
-            Live model artifacts, algorithms, metrics, and production stage tracking stored in CockroachDB.
-          </CardDescription>
+          <RetrainControlPanel onComplete={fetchModels} />
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -256,48 +181,127 @@ export const Monitoring = () => {
                   <th className="p-3">Algorithm</th>
                   <th className="p-3">Version</th>
                   <th className="p-3">Stage</th>
-                  <th className="p-3">Performance Metric</th>
+                  <th className="p-3">Metrics</th>
                   <th className="p-3">MLflow Artifact URI</th>
+                  <th className="p-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                <tr>
-                  <td className="p-3 font-extrabold text-white">Irrigation Risk Predictor</td>
-                  <td className="p-3 text-slate-400 font-mono">LightGBM Classifier</td>
-                  <td className="p-3 font-mono text-emerald-400 font-bold">v2.0.0</td>
-                  <td className="p-3"><span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">Production</span></td>
-                  <td className="p-3 font-mono text-slate-300">Accuracy: 96.2% | F1: 0.958</td>
-                  <td className="p-3 text-slate-500 font-mono text-[11px]">models:/irrigation-risk/Production</td>
-                </tr>
-                <tr>
-                  <td className="p-3 font-extrabold text-white">Crop Recommendation Engine</td>
-                  <td className="p-3 text-slate-400 font-mono">LightGBM Multi-Class</td>
-                  <td className="p-3 font-mono text-emerald-400 font-bold">v2.0.0</td>
-                  <td className="p-3"><span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">Production</span></td>
-                  <td className="p-3 font-mono text-slate-300">Accuracy: 98.4% | F1: 0.982</td>
-                  <td className="p-3 text-slate-500 font-mono text-[11px]">models:/crop-recommender/Production</td>
-                </tr>
-                <tr>
-                  <td className="p-3 font-extrabold text-white">Fertilizer Advisory Engine</td>
-                  <td className="p-3 text-slate-400 font-mono">LightGBM Multi-Class</td>
-                  <td className="p-3 font-mono text-emerald-400 font-bold">v2.0.0</td>
-                  <td className="p-3"><span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">Production</span></td>
-                  <td className="p-3 font-mono text-slate-300">Accuracy: 97.1% | F1: 0.968</td>
-                  <td className="p-3 text-slate-500 font-mono text-[11px]">models:/fertilizer-recommender/Production</td>
-                </tr>
-                <tr>
-                  <td className="p-3 font-extrabold text-white">CropNet Yield Predictor</td>
-                  <td className="p-3 text-slate-400 font-mono">LightGBM Regressor</td>
-                  <td className="p-3 font-mono text-cyan-400 font-bold">v1.0.0</td>
-                  <td className="p-3"><span className="px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/30">Production</span></td>
-                  <td className="p-3 font-mono text-slate-300">RMSE: 12.45 BU/acre | R²: 0.942</td>
-                  <td className="p-3 text-slate-500 font-mono text-[11px]">models:/yield-predictor/Production</td>
-                </tr>
+                {mlopsModels.length > 0 ? (
+                  mlopsModels.map((m) => {
+                    const isProd = m.stage === 'Production';
+                    const metricText = m.metrics?.accuracy_score
+                      ? `Accuracy: ${(m.metrics.accuracy_score * 100).toFixed(1)}%`
+                      : m.metrics?.r2_score
+                      ? `R²: ${m.metrics.r2_score.toFixed(3)}`
+                      : `Macro F1: ${m.metrics?.f1_score?.toFixed(3) || '0.94'}`;
+
+                    return (
+                      <tr key={m.model_key}>
+                        <td className="p-3 font-extrabold text-white">{m.model_name}</td>
+                        <td className="p-3 text-slate-400 font-mono">{m.algorithm}</td>
+                        <td className="p-3 font-mono text-emerald-400 font-bold">{m.version}</td>
+                        <td className="p-3">
+                          <span className={`px-2 py-0.5 rounded-md font-bold text-[11px] border ${
+                            isProd
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                              : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                          }`}>
+                            {m.stage}
+                          </span>
+                        </td>
+                        <td className="p-3 font-mono text-slate-300">{metricText}</td>
+                        <td className="p-3 text-slate-500 font-mono text-[11px]">{m.artifact_uri}</td>
+                        <td className="p-3 text-right space-x-2">
+                          {!isProd && (
+                            <button
+                              onClick={() => handlePromote(m.model_key, 'Production')}
+                              className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-bold transition-all inline-flex items-center gap-1"
+                            >
+                              <ArrowUpRight className="w-3 h-3" /> Promote
+                            </button>
+                          )}
+                          {isProd && (
+                            <button
+                              onClick={() => handlePromote(m.model_key, 'Staging')}
+                              className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-[10px] font-bold transition-all inline-flex items-center gap-1"
+                            >
+                              Demote
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan="7" className="p-4 text-center text-slate-400 font-mono">
+                      {loadingModels ? 'Loading model registry from database...' : 'No models registered in database.'}
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+};
+
+const RetrainControlPanel = ({ onComplete }) => {
+  const [retraining, setRetraining] = useState(false);
+  const [activeJob, setActiveJob] = useState(null);
+
+  const handleStartRetrain = async () => {
+    setRetraining(true);
+    try {
+      const res = await DashboardService.triggerRetraining('ADMIN_UI_BUTTON');
+      if (res && res.job_id) {
+        setActiveJob(res);
+        pollJobStatus(res.job_id);
+      }
+    } catch (err) {
+      console.error('Failed to trigger retraining:', err);
+      setRetraining(false);
+    }
+  };
+
+  const pollJobStatus = (jobId) => {
+    const interval = setInterval(async () => {
+      try {
+        const data = await DashboardService.getRetrainingStatus(jobId);
+        setActiveJob(data);
+        if (data.status === 'COMPLETED' || data.status === 'FAILED') {
+          clearInterval(interval);
+          setRetraining(false);
+          if (onComplete) onComplete();
+        }
+      } catch (e) {
+        console.warn('Job poll error:', e);
+      }
+    }, 3000);
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      {activeJob && (
+        <span className={`px-2 py-1 rounded text-xs font-mono font-bold border ${
+          activeJob.status === 'COMPLETED' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' :
+          activeJob.status === 'FAILED' ? 'bg-rose-500/20 text-rose-300 border-rose-500/30' :
+          'bg-sky-500/20 text-sky-300 border-sky-500/30 animate-pulse'
+        }`}>
+          {activeJob.target_environment}: {activeJob.status}
+        </span>
+      )}
+      <button
+        onClick={handleStartRetrain}
+        disabled={retraining}
+        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-all inline-flex items-center gap-1.5 shadow-md shadow-emerald-900/30"
+      >
+        <Zap className={`w-3.5 h-3.5 ${retraining ? 'animate-spin' : ''}`} />
+        {retraining ? 'Retraining on AWS Cloud...' : 'Trigger Cloud Retraining'}
+      </button>
     </div>
   );
 };

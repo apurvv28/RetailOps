@@ -24,10 +24,18 @@ export const Pipeline = () => {
   const [completedStages, setCompletedStages] = useState(new Set());
   const [runningAnimation, setRunningAnimation] = useState(false);
 
-  const runAnimation = () => {
+  const runAnimation = async () => {
     if (runningAnimation) return;
     setRunningAnimation(true);
     setCompletedStages(new Set());
+
+    try {
+      const { DashboardService } = await import('../services/api');
+      await DashboardService.triggerSyntheticEvent();
+    } catch (e) {
+      console.warn('Synthetic event injection notice:', e);
+    }
+
     let idx = 0;
     const advance = () => {
       setActiveStage(idx);
@@ -45,6 +53,7 @@ export const Pipeline = () => {
     };
     advance();
   };
+
 
   useEffect(() => {
     if (isPipelineActive && !runningAnimation) runAnimation();

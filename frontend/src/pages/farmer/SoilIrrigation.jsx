@@ -10,14 +10,8 @@ export const SoilIrrigation = () => {
   const [rainfall, setRainfall] = useState(0.0);
 
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState({
-    moisture_depletion_risk: 0.72,
-    risk_flag: true,
-    top_features: [
-      { feature: 'moisture_deficit', value: 75.0, importance: 0.42 },
-      { feature: 'hydro_thermal_index', value: 0.43, importance: 0.31 }
-    ]
-  });
+  const [result, setResult] = useState(null);
+
 
   const handlePredict = async () => {
     setLoading(true);
@@ -85,82 +79,105 @@ export const SoilIrrigation = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Risk Gauge Card */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col justify-between shadow-xl">
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                24-Hour Soil Depletion Risk
-              </span>
-              <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                result.risk_flag
-                  ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                  : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-              }`}>
-                {result.risk_flag ? 'High Moisture Risk' : 'Optimal Soil Status'}
-              </span>
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col justify-between shadow-xl min-h-[350px]">
+          {!result ? (
+            <div className="flex flex-col items-center justify-center h-full text-center space-y-4 p-6 border-2 border-dashed border-slate-800 rounded-2xl">
+              <div className="w-16 h-16 rounded-2xl bg-blue-500/10 border border-blue-500/30 text-blue-400 flex items-center justify-center">
+                <Droplet className="w-8 h-8" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white mb-1">Assessment Ready</h3>
+                <p className="text-slate-400 text-xs max-w-xs">
+                  Set your sensor readings on the right and click "Run Soil Assessment" to calculate live moisture depletion risk.
+                </p>
+              </div>
             </div>
-
-            {/* Visual Risk Gauge */}
-            <div className="flex flex-col items-center justify-center my-6">
-              <div className="relative flex items-center justify-center">
-                <svg className="w-48 h-48 transform -rotate-90">
-                  <circle
-                    cx="96"
-                    cy="96"
-                    r="76"
-                    stroke="currentColor"
-                    strokeWidth="16"
-                    className="text-slate-800"
-                    fill="transparent"
-                  />
-                  <circle
-                    cx="96"
-                    cy="96"
-                    r="76"
-                    stroke="currentColor"
-                    strokeWidth="16"
-                    className={result.risk_flag ? 'text-rose-500' : 'text-emerald-500'}
-                    strokeDasharray={477}
-                    strokeDashoffset={477 - (477 * (result.moisture_depletion_risk || 0.5))}
-                    strokeLinecap="round"
-                    fill="transparent"
-                  />
-                </svg>
-                <div className="absolute flex flex-col items-center">
-                  <span className="text-4xl font-extrabold text-white">
-                    {Math.round((result.moisture_depletion_risk || 0.5) * 100)}%
+          ) : (
+            <>
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    24-Hour Soil Depletion Risk
                   </span>
-                  <span className="text-xs text-slate-400 font-medium mt-1">Depletion Prob</span>
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                    result.risk_flag
+                      ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                      : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                  }`}>
+                    {result.risk_flag ? 'High Moisture Risk' : 'Optimal Soil Status'}
+                  </span>
+                </div>
+
+                {/* Visual Risk Gauge */}
+                <div className="flex flex-col items-center justify-center my-6">
+                  <div className="relative flex items-center justify-center">
+                    <svg className="w-48 h-48 transform -rotate-90">
+                      <circle
+                        cx="96"
+                        cy="96"
+                        r="76"
+                        stroke="currentColor"
+                        strokeWidth="16"
+                        className="text-slate-800"
+                        fill="transparent"
+                      />
+                      <circle
+                        cx="96"
+                        cy="96"
+                        r="76"
+                        stroke="currentColor"
+                        strokeWidth="16"
+                        className={result.risk_flag ? 'text-rose-500' : 'text-emerald-500'}
+                        strokeDasharray={477}
+                        strokeDashoffset={477 - (477 * (result.moisture_depletion_risk || 0.5))}
+                        strokeLinecap="round"
+                        fill="transparent"
+                      />
+                    </svg>
+                    <div className="absolute flex flex-col items-center">
+                      <span className="text-4xl font-extrabold text-white">
+                        {Math.round((result.moisture_depletion_risk || 0.5) * 100)}%
+                      </span>
+                      <span className="text-xs text-slate-400 font-medium mt-1">Depletion Prob</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Actionable Advice Box */}
+                <div className={`p-4 rounded-2xl border ${
+                  result.risk_flag
+                    ? 'bg-rose-500/10 border-rose-500/30 text-rose-200'
+                    : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
+                }`}>
+                  <div className="flex items-center gap-2 font-bold text-base mb-1">
+                    {result.risk_flag ? <AlertTriangle className="w-5 h-5 text-rose-400" /> : <CheckCircle className="w-5 h-5 text-emerald-400" />}
+                    {result.risk_flag ? 'Action Needed: Irrigate Farm Today' : 'No Irrigation Needed Today'}
+                  </div>
+                  <p className="text-xs opacity-90 leading-relaxed">
+                    {result.risk_flag
+                      ? `Soil moisture is low (${moisture}%). Apply 15–20 mm of water in the early morning to prevent crop stress.`
+                      : `Soil moisture (${moisture}%) is sufficient for healthy crop growth over the next 24 hours.`}
+                  </p>
                 </div>
               </div>
-            </div>
 
-            {/* Actionable Advice Box */}
-            <div className={`p-4 rounded-2xl border ${
-              result.risk_flag
-                ? 'bg-rose-500/10 border-rose-500/30 text-rose-200'
-                : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
-            }`}>
-              <div className="flex items-center gap-2 font-bold text-base mb-1">
-                {result.risk_flag ? <AlertTriangle className="w-5 h-5 text-rose-400" /> : <CheckCircle className="w-5 h-5 text-emerald-400" />}
-                {result.risk_flag ? 'Action Needed: Irrigate Farm Today' : 'No Irrigation Needed Today'}
-              </div>
-              <p className="text-xs opacity-90 leading-relaxed">
-                {result.risk_flag
-                  ? `Soil moisture is low (${moisture}%). Apply 15–20 mm of water in the early morning to prevent crop stress.`
-                  : `Soil moisture (${moisture}%) is sufficient for healthy crop growth over the next 24 hours.`}
-              </p>
-            </div>
-          </div>
+              <button
+                onClick={handleTriggerAlert}
+                disabled={!result?.risk_flag}
+                className={`w-full mt-6 py-3 px-4 font-semibold rounded-xl transition-all border flex items-center justify-center gap-2 text-sm shadow-md ${
+                  result?.risk_flag
+                    ? 'bg-rose-600 hover:bg-rose-500 text-white border-rose-500 shadow-rose-900/40 animate-pulse'
+                    : 'bg-slate-800/50 text-slate-500 border-slate-800 cursor-not-allowed'
+                }`}
+              >
+                <Send className="w-4 h-4" />
+                {result?.risk_flag ? 'Dispatch Emergency Irrigation Pump Alert' : 'Irrigation Pump Standby (Moisture Optimal)'}
+              </button>
 
-          <button
-            onClick={handleTriggerAlert}
-            className="w-full mt-6 py-3 px-4 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-xl transition-all border border-slate-700 flex items-center justify-center gap-2 text-sm shadow-md"
-          >
-            <Send className="w-4 h-4 text-blue-400" />
-            Send Irrigation Pump Alert
-          </button>
+            </>
+          )}
         </div>
+
 
         {/* Input Parameters Controls */}
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-5 shadow-xl">

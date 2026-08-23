@@ -13,12 +13,8 @@ export const FertilizerRecommendation = () => {
   const [moisture, setMoisture] = useState(38.0);
 
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState({
-    recommended_fertilizer: 'Urea',
-    confidence: 0.96,
-    nutrient_deficiency_summary: 'Deficiency analysis: Nitrogen=12.0 kg/ha is severely low for Paddy. Apply Urea (46% Nitrogen) to restore soil fertility.',
-    llm_explanation: 'Urea provides a direct 46% concentrated Nitrogen boost needed during early tiller formation of Paddy in clayey soil.'
-  });
+  const [result, setResult] = useState(null);
+
 
   const handlePredict = async () => {
     setLoading(true);
@@ -66,66 +62,83 @@ export const FertilizerRecommendation = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Fertilizer Recommendation Card */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-xl">
-          <div>
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              Recommended Fertilizer
-            </span>
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-xl flex flex-col justify-between min-h-[350px]">
+          {!result ? (
+            <div className="flex flex-col items-center justify-center h-full text-center space-y-4 p-6 border-2 border-dashed border-slate-800 rounded-2xl">
+              <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center">
+                <FlaskConical className="w-8 h-8" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white mb-1">Advisory Ready</h3>
+                <p className="text-slate-400 text-xs max-w-xs">
+                  Fill in your NPK nutrients and crop details on the right, then click "Calculate Fertilizer" to generate customized fertilizer dosage recommendations.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div>
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  Recommended Fertilizer
+                </span>
 
-            <div className="mt-4 p-6 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center font-bold text-2xl">
-                  🧪
+                <div className="mt-4 p-6 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center font-bold text-2xl">
+                      🧪
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-extrabold text-white">{result.recommended_fertilizer}</h3>
+                      <div className="text-xs text-amber-400 font-semibold mt-0.5">
+                        Recommended Dosage: 50 kg / acre
+                      </div>
+                    </div>
+                  </div>
+                  <Check className="w-8 h-8 text-amber-400" />
                 </div>
-                <div>
-                  <h3 className="text-2xl font-extrabold text-white">{result.recommended_fertilizer}</h3>
-                  <div className="text-xs text-amber-400 font-semibold mt-0.5">
-                    Recommended Dosage: 50 kg / acre
+              </div>
+
+              {/* Nutrient Deficits Visual Cards */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  Nutrient Balance Status
+                </h4>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-center">
+                    <div className="text-xs text-slate-400 mb-1">Nitrogen (N)</div>
+                    <div className="text-sm font-bold text-rose-400 flex items-center justify-center gap-1">
+                      <ShieldAlert className="w-3.5 h-3.5" /> Deficient
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-center">
+                    <div className="text-xs text-slate-400 mb-1">Phosphorus (P)</div>
+                    <div className="text-sm font-bold text-emerald-400 flex items-center justify-center gap-1">
+                      <Check className="w-3.5 h-3.5" /> Balanced
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-center">
+                    <div className="text-xs text-slate-400 mb-1">Potassium (K)</div>
+                    <div className="text-sm font-bold text-amber-400 flex items-center justify-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5" /> Moderate
+                    </div>
                   </div>
                 </div>
               </div>
-              <Check className="w-8 h-8 text-amber-400" />
-            </div>
-          </div>
 
-          {/* Nutrient Deficits Visual Cards */}
-          <div className="space-y-3">
-            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              Nutrient Balance Status
-            </h4>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-center">
-                <div className="text-xs text-slate-400 mb-1">Nitrogen (N)</div>
-                <div className="text-sm font-bold text-rose-400 flex items-center justify-center gap-1">
-                  <ShieldAlert className="w-3.5 h-3.5" /> Deficient
+              {/* AI Explanation Box */}
+              <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-2">
+                <div className="flex items-center gap-2 font-bold text-sm text-amber-300">
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  Nutrient Deficiency Advisory
                 </div>
+                <p className="text-xs text-amber-200 leading-relaxed">
+                  {result.nutrient_deficiency_summary || 'Targeted NPK application plan calculated for optimal crop growth.'}
+                </p>
               </div>
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-center">
-                <div className="text-xs text-slate-400 mb-1">Phosphorus (P)</div>
-                <div className="text-sm font-bold text-emerald-400 flex items-center justify-center gap-1">
-                  <Check className="w-3.5 h-3.5" /> Balanced
-                </div>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-center">
-                <div className="text-xs text-slate-400 mb-1">Potassium (K)</div>
-                <div className="text-sm font-bold text-amber-400 flex items-center justify-center gap-1">
-                  <AlertCircle className="w-3.5 h-3.5" /> Moderate
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* AI Explanation Box */}
-          <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-2">
-            <div className="flex items-center gap-2 font-bold text-sm text-amber-300">
-              <Sparkles className="w-4 h-4 text-amber-400" />
-              Nutrient Deficiency Advisory
-            </div>
-            <p className="text-xs text-amber-200 leading-relaxed">
-              {result.nutrient_deficiency_summary}
-            </p>
-          </div>
+            </>
+          )}
         </div>
+
 
         {/* Input Parameters Form */}
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">

@@ -148,7 +148,17 @@ export const FarmerService = {
 
   predictYield: (payload) =>
     api.post('/predict/yield', payload).then(r => r.data),
+
+  getFarmerAlerts: () =>
+    api.get('/api/farmer/alerts').then(r => r.data),
+
+  markAlertRead: (alertId) =>
+    api.post(`/api/farmer/alerts/${alertId}/read`).then(r => r.data),
+
+  getSensorStatus: () =>
+    api.get('/api/farmer/sensor-status').then(r => r.data),
 };
+
 
 export const DashboardService = {
   getRecentPredictions: (limit = 100) =>
@@ -177,7 +187,20 @@ export const DashboardService = {
 
   triggerAlert: (payload) =>
     api.post('/actions/alert', payload).then(r => r.data),
+
+  triggerRetraining: (source = 'ADMIN_UI') =>
+    api.post('/api/mlops/retrain', null, { params: { trigger_source: source } }).then(r => r.data),
+
+  getRetrainingStatus: (jobId) =>
+    api.get(`/api/mlops/retrain/status/${jobId}`).then(r => r.data),
+
+  getRetrainingHistory: () =>
+    api.get('/api/mlops/retrain/history').then(r => r.data),
+
+  triggerSyntheticEvent: () =>
+    api.post('/api/admin/trigger-event').then(r => r.data),
 };
+
 
 
 export default api;

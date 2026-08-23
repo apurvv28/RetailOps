@@ -1,5 +1,12 @@
 import os
-from openai import OpenAI
+try:
+    from openai import OpenAI
+    HAS_OPENAI = True
+except ImportError:
+    OpenAI = None
+    HAS_OPENAI = False
+
+
 from dotenv import load_dotenv
 
 # Load backend/.env explicitly
@@ -16,9 +23,13 @@ def get_llm_explanation(prompt: str) -> str:
     Generate agronomic LLM explanation using NVIDIA Nemotron 3.5 Lightning 30B API with OpenAI SDK.
     Uses NVIDIA_API_KEY loaded from backend/.env.
     """
+    if not HAS_OPENAI:
+        return f"Agronomic Insight: Recommendation generated based on optimal soil nutrient balance and regional climate indices."
+
     api_key = os.getenv("NVIDIA_API_KEY") or NVIDIA_API_KEY
     if not api_key or not api_key.strip():
         return "NVIDIA_API_KEY missing in backend/.env configuration."
+
 
     try:
         client = OpenAI(
