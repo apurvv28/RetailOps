@@ -11,6 +11,7 @@ permissions:
 env:
   AWS_DEFAULT_REGION: ap-south-1
   AWS_ALB_DNS: vajra-alb-73485288.ap-south-1.elb.amazonaws.com
+  AMPLIFY_APP_ID: debl68w4trakj
 
 jobs:
   # ====================================================================
@@ -84,25 +85,33 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_DEFAULT_REGION }}
 
-    - name: Trigger AWS Amplify Deployment Job
+    - name: Set up Node.js 20
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Build & Deploy Frontend to AWS Amplify
       run: |
-        echo "Initiating AWS Amplify deployment..."
+        APP_ID="${{ secrets.AMPLIFY_APP_ID || env.AMPLIFY_APP_ID }}"
+        echo "Building and deploying to AWS Amplify App ID: $APP_ID (branch: main)..."
         
-        # 1. Trigger via Amplify App ID if configured
-        if [ -n "${{ secrets.AMPLIFY_APP_ID }}" ]; then
-          echo "Starting Amplify Job for App ID: ${{ secrets.AMPLIFY_APP_ID }} (branch: main)..."
-          aws amplify start-job \
-            --app-id "${{ secrets.AMPLIFY_APP_ID }}" \
-            --branch-name "main" \
-            --job-type "RELEASE"
-          echo "Amplify release job initiated successfully."
-        elif [ -n "${{ secrets.AMPLIFY_WEBHOOK_URL }}" ]; then
-          echo "Triggering AWS Amplify Webhook..."
-          curl -s -X POST -d '{}' "${{ secrets.AMPLIFY_WEBHOOK_URL }}"
-          echo "Amplify webhook triggered successfully."
-        else
-          echo "Amplify GitHub Integration active: Pushes to main branch automatically build and deploy via amplify.yml specification."
-        fi
+        cd frontend
+        npm install --no-audit --prefer-offline
+        npm run build
+        cd dist
+        zip -rq ../../frontend_dist.zip .
+        cd ../..
+
+        DEP_JSON=$(aws amplify create-deployment --app-id "$APP_ID" --branch-name "main" --region "${{ env.AWS_DEFAULT_REGION }}")
+        JOB_ID=$(echo "$DEP_JSON" | jq -r .jobId)
+        UPLOAD_URL=$(echo "$DEP_JSON" | jq -r .zipUploadUrl)
+
+        echo "Uploading frontend artifact package (Job $JOB_ID)..."
+        curl -s -T frontend_dist.zip "$UPLOAD_URL"
+
+        echo "Starting AWS Amplify Deployment Job $JOB_ID..."
+        aws amplify start-deployment --app-id "$APP_ID" --branch-name "main" --job-id "$JOB_ID" --region "${{ env.AWS_DEFAULT_REGION }}"
+        echo "Amplify deployment successfully initiated!"
 
   # ====================================================================
   # 3. DEPLOY BACKEND TO AWS EC2 (ALB TARGET GROUP)
