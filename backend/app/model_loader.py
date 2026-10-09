@@ -57,7 +57,7 @@ class FallbackYieldModel:
         return np.array([150.0])
 
 def load_production_models():
-    global irrigation_model, crop_model, fertilizer_model, yield_model, model_version
+    global irrigation_model, crop_model, fertilizer_model, yield_model
     try:
         mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     except Exception as e:

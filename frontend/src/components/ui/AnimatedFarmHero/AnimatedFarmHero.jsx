@@ -21,7 +21,7 @@ export function AnimatedFarmHero({
       {/* Soft overlay so text remains readable */}
       <div className={styles.videoOverlay} />
 
-      {/* RetailOps logo - top left */}
+      {/* KrishiLoop logo - top left */}
       <header className={styles.navbar}>
         <button
           type="button"
@@ -34,7 +34,7 @@ export function AnimatedFarmHero({
             <span />
           </span>
 
-          <span>RetailOps</span>
+          <span>KrishiLoop</span>
         </button>
       </header>
 
@@ -42,18 +42,18 @@ export function AnimatedFarmHero({
       <section className={styles.heroContent}>
         <div className={styles.heroCard}>
           <div className={styles.badge}>
-            AI-POWERED RETAIL INTELLIGENCE
+            AI-POWERED PRECISION AGRICULTURE
           </div>
 
           <h1>
             Smarter decisions.
             <br />
-            Better retail.
+            Better harvest.
           </h1>
 
           <p>
-            Predict demand. Optimize inventory. Monitor your retail
-            operations with AI-powered intelligence.
+            Predict crop yields. Optimize irrigation & fertilizer. Monitor
+            real-time soil telemetry with AI-powered agricultural intelligence.
           </p>
 
           {/* Only landing-page button */}
@@ -73,15 +73,15 @@ export function AnimatedFarmHero({
       {/* Bottom highlights */}
       <div className={styles.bottomInfo}>
         <span>
-          <i /> AI Forecasting
+          <i /> AI Yield & Harvest
         </span>
 
         <span>
-          <i /> Live Predictions
+          <i /> Precision Irrigation
         </span>
 
         <span>
-          <i /> Smart Monitoring
+          <i /> Smart Soil Telemetry
         </span>
       </div>
     </main>
