@@ -121,6 +121,10 @@ jobs:
     needs: [verify-test]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
+    env:
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+      EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
 
     steps:
     - name: Checkout Code
@@ -135,30 +139,30 @@ jobs:
 
     # Option A: SSH Deployment if EC2_HOST & EC2_SSH_KEY secrets exist
     - name: Deploy via SSH to EC2 Instance
-      if: ${{ secrets.EC2_SSH_KEY != '' && secrets.EC2_HOST != '' }}
+      if: env.EC2_SSH_KEY != '' && env.EC2_HOST != ''
       uses: appleboy/ssh-action@v1.0.3
       with:
-        host: ${{ secrets.EC2_HOST }}
+        host: ${{ env.EC2_HOST }}
         username: ${{ secrets.EC2_USER || 'ubuntu' }}
-        key: ${{ secrets.EC2_SSH_KEY }}
+        key: ${{ env.EC2_SSH_KEY }}
         script: |
           cd /home/ubuntu/Course-Project-RetailOps || cd /home/ec2-user/Course-Project-RetailOps
           bash scripts/deploy_backend_ec2.sh
 
     # Option B: AWS Systems Manager (SSM) if EC2_INSTANCE_ID secret exists (and SSH not used)
     - name: Deploy via AWS Systems Manager (SSM)
-      if: ${{ secrets.EC2_INSTANCE_ID != '' && (secrets.EC2_SSH_KEY == '' || secrets.EC2_HOST == '') }}
+      if: env.EC2_INSTANCE_ID != '' && (env.EC2_SSH_KEY == '' || env.EC2_HOST == '')
       run: |
-        echo "Sending deployment command to EC2 Instance: ${{ secrets.EC2_INSTANCE_ID }} via AWS SSM..."
+        echo "Sending deployment command to EC2 Instance: ${{ env.EC2_INSTANCE_ID }} via AWS SSM..."
         CMD_ID=$(aws ssm send-command \
-          --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
+          --instance-ids "${{ env.EC2_INSTANCE_ID }}" \
           --document-name "AWS-RunShellScript" \
           --parameters 'commands=["cd /home/ubuntu/Course-Project-RetailOps && bash scripts/deploy_backend_ec2.sh"]' \
           --comment "CI/CD automated deployment to EC2" \
           --query "Command.CommandId" \
           --output text)
         echo "Command dispatched with ID: $CMD_ID. Waiting for execution..."
-        aws ssm wait command-executed --command-id "$CMD_ID" --instance-id "${{ secrets.EC2_INSTANCE_ID }}"
+        aws ssm wait command-executed --command-id "$CMD_ID" --instance-id "${{ env.EC2_INSTANCE_ID }}"
         echo "SSM Deployment successfully completed on EC2."
 
     - name: Verify Application Load Balancer (ALB) Health
