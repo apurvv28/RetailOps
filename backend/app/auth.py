@@ -125,8 +125,37 @@ def exchange_google_code(code: str, redirect_uri: str) -> Dict[str, Any]:
 
 def fetch_or_create_user(google_id: str, email: str, name: str, picture: str = "", requested_role: str = "farmer") -> dict:
     """
-    Finds existing user by email/google_id or registers new user in CockroachDB/SQLite.
+    Finds existing user by email/google_id or registers new user in AWS DynamoDB (with SQLite fallback/sync).
     """
+    # 1. AWS DynamoDB User Management
+    dynamo_user = None
+    try:
+        try:
+            from backend.app.dynamo_db import get_user_by_email_or_google_id, save_user, get_or_create_farmer_profile
+        except ImportError:
+            from app.dynamo_db import get_user_by_email_or_google_id, save_user, get_or_create_farmer_profile
+
+        dynamo_user = get_user_by_email_or_google_id(email, google_id)
+        if not dynamo_user:
+            role = "admin" if email.lower() == "admin@agritech.com" else requested_role
+            is_demo = 1 if google_id.startswith("demo-") else 0
+            new_user_data = {
+                "id": email.lower(),
+                "google_id": google_id,
+                "email": email.lower(),
+                "name": name,
+                "picture": picture,
+                "role": role,
+                "is_demo": is_demo,
+                "created_at": datetime.utcnow().isoformat()
+            }
+            dynamo_user = save_user(new_user_data)
+            if role == "farmer":
+                get_or_create_farmer_profile(dynamo_user["id"], name)
+    except Exception as d_err:
+        print(f"DynamoDB operation notice in fetch_or_create_user: {d_err}")
+
+    # 2. SQLite / Relational storage sync
     is_sqlite = DATABASE_URL.startswith("sqlite://")
     conn = get_db_connection()
     user = None
@@ -139,9 +168,7 @@ def fetch_or_create_user(google_id: str, email: str, name: str, picture: str = "
             if row:
                 user = dict(row)
             else:
-                # Assign role: admin@agritech.com defaults to admin, otherwise requested_role
                 role = "admin" if email.lower() == "admin@agritech.com" else requested_role
-                # Tag demo users (google_id prefix 'demo-') so they can be cleaned up separately
                 is_demo = 1 if google_id.startswith("demo-") else 0
                 cursor.execute(
                     "INSERT INTO users (google_id, email, name, picture, role, is_demo) VALUES (?, ?, ?, ?, ?, ?)",
@@ -150,7 +177,6 @@ def fetch_or_create_user(google_id: str, email: str, name: str, picture: str = "
                 user_id = cursor.lastrowid
                 conn.commit()
 
-                # If farmer, create default farmer profile
                 if role == "farmer":
                     cursor.execute(
                         """
@@ -191,9 +217,18 @@ def fetch_or_create_user(google_id: str, email: str, name: str, picture: str = "
     except Exception as e:
         if hasattr(conn, "close"):
             conn.close()
+        if dynamo_user:
+            return {
+                "id": dynamo_user.get("id", email),
+                "google_id": dynamo_user.get("google_id", google_id),
+                "email": dynamo_user.get("email", email),
+                "name": dynamo_user.get("name", name),
+                "picture": dynamo_user.get("picture", picture),
+                "role": dynamo_user.get("role", requested_role)
+            }
         raise HTTPException(status_code=500, detail=f"Database user error: {e}")
 
-    return user
+    return user or dynamo_user
 
 def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     if not authorization or not authorization.startswith("Bearer "):

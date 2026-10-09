@@ -90,7 +90,7 @@ export const Login = () => {
       }
     } catch (err) {
       console.error('Google OAuth backend verification error:', err);
-      const detailMsg = err.response?.data?.detail || 'Failed to authenticate Google account with CockroachDB backend.';
+      const detailMsg = err.response?.data?.detail || 'Failed to authenticate Google account with AWS DynamoDB backend.';
       setError(detailMsg);
     } finally {
       setLoading(false);
@@ -134,7 +134,7 @@ export const Login = () => {
             AgriTech Intelligence
           </h1>
           <p className="text-slate-400 text-sm">
-            Google OAuth 2.0 & CockroachDB RBAC Portal
+            Google OAuth 2.0 & AWS DynamoDB RBAC Portal
           </p>
         </div>
 
@@ -209,7 +209,7 @@ export const Login = () => {
         <div className="mt-8 flex items-center justify-center gap-6 text-xs text-slate-500">
           <div className="flex items-center gap-1.5">
             <Lock className="w-3.5 h-3.5 text-emerald-400" />
-            <span>CockroachDB RBAC</span>
+            <span>AWS DynamoDB RBAC</span>
           </div>
           <div className="flex items-center gap-1.5">
             <UserCheck className="w-3.5 h-3.5 text-cyan-400" />
