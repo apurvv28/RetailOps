@@ -146,7 +146,10 @@ def verify_clerk_token(clerk_token: str) -> Dict[str, Any]:
         try:
             resp = requests.get(
                 f"https://api.clerk.com/v1/users/{clerk_user_id}",
-                headers={"Authorization": f"Bearer {clerk_secret_key}"},
+                headers={
+                    "Authorization": f"Bearer {clerk_secret_key}",
+                    "User-Agent": "KrishiLoop-FastAPI/2.0"
+                },
                 timeout=8
             )
             if resp.status_code == 200:
