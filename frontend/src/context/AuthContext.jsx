@@ -1,92 +1,82 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { AuthService } from '../services/api';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useUser, useAuth as useClerkAuth, useClerk } from '@clerk/react';
+import api from '../services/api';
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
+  const { isSignedIn, user: clerkUser, isLoaded: isClerkLoaded } = useUser();
+  const { getToken, signOut } = useClerkAuth();
+  const clerk = useClerk();
+
   const [user, setUser] = useState(() => {
     try {
-      const savedUser = localStorage.getItem('agritech_user');
-      return savedUser ? JSON.parse(savedUser) : null;
+      const saved = localStorage.getItem('agritech_user');
+      return saved ? JSON.parse(saved) : null;
     } catch {
       return null;
     }
   });
-
   const [token, setToken] = useState(() => localStorage.getItem('agritech_token') || null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const initAuth = async () => {
-      const storedToken = localStorage.getItem('agritech_token');
-      if (storedToken) {
-        try {
-          const res = await AuthService.getMe();
-          if (res?.user) {
-            setUser(res.user);
-            localStorage.setItem('agritech_user', JSON.stringify(res.user));
-          } else {
-            logout();
-          }
-        } catch (err) {
-          console.warn('Session verification notice, retaining cached session:', err);
-          const savedUser = localStorage.getItem('agritech_user');
-          if (savedUser) {
-            try {
-              setUser(JSON.parse(savedUser));
-            } catch {
-              logout();
-            }
-          } else {
-            logout();
-          }
-        }
-      } else {
-        setUser(null);
-      }
-      setLoading(false);
-    };
-    initAuth();
-  }, []);
+  const getSelectedRole = () => localStorage.getItem('agritech_selected_role') || 'farmer';
 
-  const saveSession = (authToken, userData) => {
-    localStorage.setItem('agritech_token', authToken);
-    localStorage.setItem('agritech_user', JSON.stringify(userData));
-    setToken(authToken);
-    setUser(userData);
+  const setSelectedRole = (role) => {
+    localStorage.setItem('agritech_selected_role', role);
   };
 
-  const loginWithGoogle = async (idToken, role = 'farmer') => {
+  const syncClerkUser = useCallback(async (role) => {
     try {
-      const data = await AuthService.loginWithGoogle(idToken, role);
-      saveSession(data.access_token, data.user);
-      return data.user;
+      const sessionToken = await getToken();
+      if (!sessionToken) throw new Error('No Clerk session token');
+
+      const res = await api.post('/api/auth/clerk', {
+        clerk_token: sessionToken,
+        requested_role: role || getSelectedRole()
+      });
+
+      const { access_token, user: backendUser } = res.data;
+      localStorage.setItem('agritech_token', access_token);
+      localStorage.setItem('agritech_user', JSON.stringify(backendUser));
+      setToken(access_token);
+      setUser(backendUser);
+      return backendUser;
     } catch (err) {
-      console.error('Google login failed:', err);
+      console.error('Clerk sync failed:', err);
       throw err;
     }
-  };
+  }, [getToken]);
 
-  const demoLogin = async (role = 'farmer') => {
-    try {
-      const data = await AuthService.demoLogin(role);
-      saveSession(data.access_token, data.user);
-      return data.user;
-    } catch (err) {
-      console.error('Demo login fallback triggered:', err);
-      const mockUser = role === 'admin'
-        ? { id: 1, email: 'admin@agritech.com', name: 'AgriOps System Admin', role: 'admin' }
-        : { id: 2, email: 'farmer@agritech.com', name: 'Ramesh Kumar (Farmer)', role: 'farmer' };
-      saveSession('mock-demo-jwt-token', mockUser);
-      return mockUser;
+  // Auto-sync when Clerk auth state changes
+  useEffect(() => {
+    if (!isClerkLoaded) return;
+
+    if (isSignedIn && clerkUser) {
+      syncClerkUser(getSelectedRole()).catch(() => {
+        // If backend sync fails, still mark as not loading
+      }).finally(() => setLoading(false));
+    } else {
+      // Not signed in — clear
+      localStorage.removeItem('agritech_token');
+      localStorage.removeItem('agritech_user');
+      setToken(null);
+      setUser(null);
+      setLoading(false);
     }
-  };
+  }, [isSignedIn, clerkUser, isClerkLoaded, syncClerkUser]);
 
-  const logout = () => {
+  const logout = async () => {
     localStorage.removeItem('agritech_token');
     localStorage.removeItem('agritech_user');
+    localStorage.removeItem('agritech_selected_role');
     setToken(null);
     setUser(null);
+    try {
+      await signOut();
+    } catch (e) {
+      console.warn('Clerk signOut notice:', e);
+    }
   };
 
   return (
@@ -98,9 +88,10 @@ export const AuthProvider = ({ children }) => {
         role: user?.role || null,
         isAdmin: user?.role === 'admin',
         isFarmer: user?.role === 'farmer' || user?.role === 'admin',
-        saveSession,
-        loginWithGoogle,
-        demoLogin,
+        isClerkSignedIn: isSignedIn,
+        clerkUser,
+        syncClerkUser,
+        setSelectedRole,
         logout
       }}
     >

@@ -1,15 +1,19 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { GoogleOAuthProvider } from '@react-oauth/google';
+import { ClerkProvider } from '@clerk/react';
 import App from './App.jsx';
 import './index.css';
 
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '1089211102625-d64vn68ereuajehtndn38fj3tdkm5rmt.apps.googleusercontent.com';
+const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || '';
+
+if (!CLERK_PUBLISHABLE_KEY) {
+  console.warn('Missing VITE_CLERK_PUBLISHABLE_KEY – Clerk auth will not work.');
+}
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+    <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY}>
       <App />
-    </GoogleOAuthProvider>
+    </ClerkProvider>
   </React.StrictMode>,
 );

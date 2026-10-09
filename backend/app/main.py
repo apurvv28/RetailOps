@@ -46,11 +46,11 @@ try:
         YieldPredictionRequest, YieldPredictionResponse, OutcomeRequest,
         OutcomeResponse, AlertRequest, AlertResponse, RecentPredictionsResponse,
         ModelDriftDetail, DriftStatusResponse, AlertsHistoryResponse,
-        DecisionLogItem, ActionItem, FeatureContribution, GoogleAuthRequest,
+        DecisionLogItem, ActionItem, FeatureContribution, GoogleAuthRequest, ClerkAuthRequest,
         DemoLoginRequest, AuthTokenResponse, FarmerProfileRequest, FarmerProfileResponse
     )
     from backend.app.auth import (
-        create_access_token, verify_google_id_token, exchange_google_code,
+        create_access_token, verify_google_id_token, exchange_google_code, verify_clerk_token,
         fetch_or_create_user, get_current_user, require_admin, require_farmer
     )
     from backend.monitoring.alert_service import send_alert_email
@@ -64,11 +64,11 @@ except ModuleNotFoundError:
         YieldPredictionRequest, YieldPredictionResponse, OutcomeRequest,
         OutcomeResponse, AlertRequest, AlertResponse, RecentPredictionsResponse,
         ModelDriftDetail, DriftStatusResponse, AlertsHistoryResponse,
-        DecisionLogItem, ActionItem, FeatureContribution, GoogleAuthRequest,
+        DecisionLogItem, ActionItem, FeatureContribution, GoogleAuthRequest, ClerkAuthRequest,
         DemoLoginRequest, AuthTokenResponse, FarmerProfileRequest, FarmerProfileResponse
     )
     from app.auth import (
-        create_access_token, verify_google_id_token, exchange_google_code,
+        create_access_token, verify_google_id_token, exchange_google_code, verify_clerk_token,
         fetch_or_create_user, get_current_user, require_admin, require_farmer
     )
     from monitoring.alert_service import send_alert_email
@@ -124,7 +124,7 @@ Integrated with CockroachDB / SQLite, BetterAuth Google OAuth, MLflow Registry &
 """
 )
 
-_default_origins = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000,http://127.0.0.1:8000"
+_default_origins = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000,http://127.0.0.1:8000,https://main.debl68w4trakj.amplifyapp.com,https://debl68w4trakj.amplifyapp.com,https://13.201.53.237.nip.io"
 _allowed_origins_raw = os.getenv("ALLOWED_ORIGINS", _default_origins)
 ALLOWED_ORIGINS = [o.strip() for o in _allowed_origins_raw.split(",") if o.strip()]
 
@@ -134,6 +134,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 @app.middleware("http")
@@ -387,6 +388,19 @@ def login_with_google(req: GoogleAuthRequest):
     token = create_access_token({"sub": str(user["id"]), "role": user["role"], "email": user["email"]})
     return AuthTokenResponse(access_token=token, user=user)
 
+@app.post("/api/auth/clerk", response_model=AuthTokenResponse)
+def login_with_clerk(req: ClerkAuthRequest):
+    """Authenticate user via Clerk session token and sync to DynamoDB."""
+    user_info = verify_clerk_token(req.clerk_token)
+    user = fetch_or_create_user(
+        google_id=user_info["clerk_id"],
+        email=user_info["email"],
+        name=user_info["name"],
+        picture=user_info.get("picture", ""),
+        requested_role=req.requested_role or "farmer"
+    )
+    token = create_access_token({"sub": str(user["id"]), "role": user["role"], "email": user["email"]})
+    return AuthTokenResponse(access_token=token, user=user)
 
 @app.post("/api/auth/demo-login", response_model=AuthTokenResponse)
 def demo_login(req: DemoLoginRequest):

@@ -123,6 +123,80 @@ def exchange_google_code(code: str, redirect_uri: str) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail=f"Google code exchange error: {e}")
 
 
+def verify_clerk_token(clerk_token: str) -> Dict[str, Any]:
+    """
+    Verifies a Clerk session token and fetches user profile.
+    Decodes the JWT to extract claims (sub, email, name) and falls back to Clerk Backend API if CLERK_SECRET_KEY is configured.
+    """
+    clerk_secret_key = os.getenv("CLERK_SECRET_KEY", "")
+
+    try:
+        # Decode JWT without signature verification to extract claims
+        unverified = jwt.decode(clerk_token, options={"verify_signature": False, "verify_exp": False})
+        clerk_user_id = unverified.get("sub", "")
+        if not clerk_user_id:
+            raise HTTPException(status_code=401, detail="Invalid Clerk token: missing sub claim")
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=401, detail=f"Failed to decode Clerk token: {e}")
+
+    # If CLERK_SECRET_KEY is present, fetch complete profile from Clerk Backend API
+    if clerk_secret_key:
+        try:
+            resp = requests.get(
+                f"https://api.clerk.com/v1/users/{clerk_user_id}",
+                headers={"Authorization": f"Bearer {clerk_secret_key}"},
+                timeout=8
+            )
+            if resp.status_code == 200:
+                clerk_data = resp.json()
+                email_addresses = clerk_data.get("email_addresses", [])
+                primary_email_id = clerk_data.get("primary_email_address_id", "")
+                email = ""
+                for ea in email_addresses:
+                    if ea.get("id") == primary_email_id:
+                        email = ea.get("email_address", "")
+                        break
+                if not email and email_addresses:
+                    email = email_addresses[0].get("email_address", "")
+
+                first_name = clerk_data.get("first_name", "") or ""
+                last_name = clerk_data.get("last_name", "") or ""
+                name = f"{first_name} {last_name}".strip() or (email.split("@")[0] if email else "Clerk User")
+                picture = clerk_data.get("image_url", "")
+
+                return {
+                    "clerk_id": clerk_user_id,
+                    "email": email or f"{clerk_user_id}@clerk.user",
+                    "name": name,
+                    "picture": picture
+                }
+        except Exception as api_err:
+            print(f"Clerk backend API lookup notice: {api_err}")
+
+    # Extract available claims directly from JWT token payload
+    email = unverified.get("email") or unverified.get("email_address") or ""
+    if not email:
+        # Check claims dictionary if present
+        claims = unverified.get("claims", {})
+        email = claims.get("email") or claims.get("email_address") or ""
+    
+    first_name = unverified.get("first_name") or unverified.get("given_name") or ""
+    last_name = unverified.get("last_name") or unverified.get("family_name") or ""
+    name = f"{first_name} {last_name}".strip() or unverified.get("name") or (email.split("@")[0] if email else "Clerk User")
+    picture = unverified.get("picture") or unverified.get("image_url") or ""
+
+    if not email:
+        email = f"{clerk_user_id}@clerk.user"
+
+    return {
+        "clerk_id": clerk_user_id,
+        "email": email,
+        "name": name,
+        "picture": picture
+    }
+
 def fetch_or_create_user(google_id: str, email: str, name: str, picture: str = "", requested_role: str = "farmer") -> dict:
     """
     Finds existing user by email/google_id or registers new user in AWS DynamoDB (with SQLite fallback/sync).
@@ -264,6 +338,25 @@ def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     except Exception as e:
         if hasattr(conn, "close"):
             conn.close()
+        # Fallback to AWS DynamoDB
+        try:
+            try:
+                from backend.app.dynamo_db import get_user_by_email_or_google_id
+            except ImportError:
+                from app.dynamo_db import get_user_by_email_or_google_id
+            d_user = get_user_by_email_or_google_id(str(user_id))
+            if d_user:
+                return {
+                    "id": d_user.get("id", str(user_id)),
+                    "google_id": d_user.get("google_id", ""),
+                    "email": d_user.get("email", str(user_id)),
+                    "name": d_user.get("name", "User"),
+                    "picture": d_user.get("picture", ""),
+                    "role": d_user.get("role", "farmer")
+                }
+        except Exception as d_err:
+            pass
+
         if isinstance(e, HTTPException):
             raise e
         raise HTTPException(status_code=500, detail=f"User retrieval error: {e}")

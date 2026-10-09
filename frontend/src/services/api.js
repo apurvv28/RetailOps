@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://krishiloop-alb-1915260657.ap-south-1.elb.amazonaws.com';
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://13.201.53.237.nip.io';
 const API_KEY = import.meta.env.VITE_API_KEY || '';
 
 const api = axios.create({
@@ -35,11 +35,8 @@ api.interceptors.response.use(
 );
 
 export const AuthService = {
-  getGoogleAuthUrl: (role = 'farmer') =>
-    api.get('/api/auth/google/url', { params: { role } }).then(r => r.data),
-
-  loginWithGoogle: (idToken, requestedRole = 'farmer') =>
-    api.post('/api/auth/google', { id_token: idToken, requested_role: requestedRole }).then(r => r.data),
+  clerkLogin: (clerkToken, requestedRole = 'farmer') =>
+    api.post('/api/auth/clerk', { clerk_token: clerkToken, requested_role: requestedRole }).then(r => r.data),
 
   demoLogin: (role = 'farmer', email = null) =>
     api.post('/api/auth/demo-login', { role, email }).then(r => r.data),

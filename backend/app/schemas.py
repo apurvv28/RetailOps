@@ -163,6 +163,10 @@ class GoogleAuthRequest(BaseModel):
     id_token: str
     requested_role: Optional[str] = "farmer"
 
+class ClerkAuthRequest(BaseModel):
+    clerk_token: str
+    requested_role: Optional[str] = "farmer"
+
 class DemoLoginRequest(BaseModel):
     role: str = "farmer" # 'admin' or 'farmer'
     email: Optional[str] = None
