@@ -10,7 +10,7 @@ permissions:
 
 env:
   AWS_DEFAULT_REGION: ap-south-1
-  AWS_ALB_DNS: krishiloop-alb-1286279459.ap-south-1.elb.amazonaws.com
+  AWS_ALB_DNS: vajra-alb-73485288.ap-south-1.elb.amazonaws.com
 
 jobs:
   # ====================================================================
