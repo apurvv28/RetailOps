@@ -73,31 +73,34 @@ def compute_numerical_psi(reference: np.ndarray, current: np.ndarray, num_bins: 
     ref_counts, _ = np.histogram(ref_clean, bins=bins)
     curr_counts, _ = np.histogram(curr_clean, bins=bins)
 
-    actual_bins = len(bins) - 1
-    ref_pct = (ref_counts + 1e-5) / (len(ref_clean) + 1e-5 * actual_bins)
-    curr_pct = (curr_counts + 1e-5) / (len(curr_clean) + 1e-5 * actual_bins)
+    # Laplace additive smoothing (+1.0 count per bin) prevents zero-count log divergence
+    ref_counts = ref_counts.astype(float) + 1.0
+    curr_counts = curr_counts.astype(float) + 1.0
+
+    ref_pct = ref_counts / np.sum(ref_counts)
+    curr_pct = curr_counts / np.sum(curr_counts)
 
     psi_val = np.sum((curr_pct - ref_pct) * np.log(curr_pct / ref_pct))
-    return float(max(0.0, psi_val))
+    return float(round(max(0.0, psi_val), 4))
 
 
 def compute_categorical_psi(reference_counts: dict, current_counts: dict) -> float:
     """
-    Computes Population Stability Index (PSI) for discrete / categorical class labels.
+    Computes Population Stability Index (PSI) for discrete / categorical class labels
+    with standard Laplace smoothing (+1.0 count) to prevent artificial divergence on empty categories.
     """
     all_categories = sorted(list(set(list(reference_counts.keys()) + list(current_counts.keys()))))
     if not all_categories:
         return 0.0
 
-    total_ref = sum(reference_counts.values()) or 1.0
-    total_curr = sum(current_counts.values()) or 1.0
-    num_cats = len(all_categories)
+    ref_arr = np.array([reference_counts.get(cat, 0) + 1.0 for cat in all_categories], dtype=float)
+    curr_arr = np.array([current_counts.get(cat, 0) + 1.0 for cat in all_categories], dtype=float)
 
-    ref_pcts = np.array([(reference_counts.get(cat, 0) + 1e-5) / (total_ref + 1e-5 * num_cats) for cat in all_categories])
-    curr_pcts = np.array([(current_counts.get(cat, 0) + 1e-5) / (total_curr + 1e-5 * num_cats) for cat in all_categories])
+    ref_pcts = ref_arr / np.sum(ref_arr)
+    curr_pcts = curr_arr / np.sum(curr_arr)
 
     psi_val = np.sum((curr_pcts - ref_pcts) * np.log(curr_pcts / ref_pcts))
-    return float(max(0.0, psi_val))
+    return float(round(max(0.0, psi_val), 4))
 
 
 # ==================== DATA DRIFT DETECTOR (COVARIATE SHIFT) ====================

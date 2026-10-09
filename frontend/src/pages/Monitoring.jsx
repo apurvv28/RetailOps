@@ -175,13 +175,13 @@ export const Monitoring = () => {
               {isModelDrifted ? 'Advice Shifting' : 'Consistent & Stable'}
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center justify-between font-medium">
-              <span>Stability Index: <strong className="text-slate-800 dark:text-slate-200">High</strong></span>
-              <span>Variance: {modelPsiScore ? modelPsiScore.toFixed(3) : '0.018'}</span>
+              <span>Model Stability: <strong className={isModelDrifted ? "text-amber-500 font-bold" : "text-emerald-500 font-bold"}>{isModelDrifted ? (modelPsiScore > 0.25 ? 'Shift Detected' : 'Moderate Shift') : 'Optimal (Stable)'}</strong></span>
+              <span>PSI Divergence: <strong className="font-mono text-slate-700 dark:text-slate-300">{modelPsiScore ? modelPsiScore.toFixed(3) : '0.018'}</strong></span>
             </p>
             <div className="mt-2.5 h-1.5 w-full bg-slate-100 dark:bg-white/10 rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-500 ${isModelDrifted ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                style={{ width: `${Math.min((modelPsiScore / 0.3) * 100, 100)}%` }}
+                style={{ width: `${Math.min((modelPsiScore / 0.25) * 100, 100)}%` }}
               />
             </div>
           </div>
@@ -250,8 +250,8 @@ export const Monitoring = () => {
               <tr>
                 <th className="p-3.5">Advisory System</th>
                 <th className="p-3.5">Output Category</th>
-                <th className="p-3.5">Stability Metric</th>
-                <th className="p-3.5">Variance Score</th>
+                <th className="p-3.5">Distribution Metric</th>
+                <th className="p-3.5">PSI Score (Drift Variance)</th>
                 <th className="p-3.5">Deviation Check</th>
                 <th className="p-3.5">Current Field Summary</th>
                 <th className="p-3.5 text-right">Status</th>
