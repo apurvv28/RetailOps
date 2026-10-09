@@ -1,6 +1,12 @@
+import os
+os.environ["DISABLE_PANDERA_IMPORT_WARNING"] = "True"
 import pandas as pd
-import pandera as pa
-from pandera import Column, Check, DataFrameSchema
+try:
+    import pandera.pandas as pa
+    from pandera.pandas import Column, Check, DataFrameSchema
+except ImportError:
+    import pandera as pa
+    from pandera import Column, Check, DataFrameSchema
 
 # 1. Schema for Real Irrigation Telemetry (NRSC Maharashtra Soil Moisture)
 maharashtra_sm_schema = DataFrameSchema(
@@ -42,7 +48,22 @@ fertilizer_recommendation_real_schema = DataFrameSchema(
     }
 )
 
-# 4. Schema for CropNet Yield Dataset
+# 4. Schema for Real Crop Yield Dataset (25,000 empirical field trial records)
+crop_yield_real_schema = DataFrameSchema(
+    columns={
+        "N": Column(float, checks=Check.greater_than_or_equal_to(0.0), coerce=True, nullable=False),
+        "P": Column(float, checks=Check.greater_than_or_equal_to(0.0), coerce=True, nullable=False),
+        "K": Column(float, checks=Check.greater_than_or_equal_to(0.0), coerce=True, nullable=False),
+        "temperature": Column(float, checks=[Check.greater_than_or_equal_to(-10.0), Check.less_than_or_equal_to(60.0)], coerce=True, nullable=False),
+        "humidity": Column(float, checks=[Check.greater_than_or_equal_to(0.0), Check.less_than_or_equal_to(100.0)], coerce=True, nullable=False),
+        "ph": Column(float, checks=[Check.greater_than_or_equal_to(0.0), Check.less_than_or_equal_to(14.0)], coerce=True, nullable=False),
+        "rainfall": Column(float, checks=Check.greater_than_or_equal_to(0.0), coerce=True, nullable=False),
+        "label": Column(str, coerce=True, nullable=False),
+        "yield": Column(float, checks=Check.greater_than_or_equal_to(0.0), coerce=True, nullable=False),
+    }
+)
+
+# 5. Schema for CropNet Yield Dataset
 cropnet_yield_schema = DataFrameSchema(
     columns={
         "year": Column(int, coerce=True, nullable=False),
@@ -66,6 +87,12 @@ def validate_crop_df(df: pd.DataFrame) -> pd.DataFrame:
 def validate_fertilizer_df(df: pd.DataFrame) -> pd.DataFrame:
     print(f"Validating Fertilizer Recommendation dataset with Pandera... Rows: {len(df)}")
     return fertilizer_recommendation_real_schema.validate(df)
+
+def validate_crop_yield_real_df(df: pd.DataFrame) -> pd.DataFrame:
+    print(f"Validating Real Crop Yield dataset with Pandera... Rows: {len(df)}")
+    return crop_yield_real_schema.validate(df)
+
+validate_yield_df = validate_crop_yield_real_df
 
 def validate_cropnet_df(df: pd.DataFrame) -> pd.DataFrame:
     print(f"Validating CropNet Yield dataset with Pandera... Rows: {len(df)}")

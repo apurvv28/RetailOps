@@ -1,13 +1,202 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <title>KrishiLoop MLOps â€” Drift Detection Dashboard</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #0b110e; color: #f1f5f9; padding: 24px; }
+        h1, h2 { color: #ffffff; }
+        .badge { padding: 4px 10px; border-radius: 9999px; font-weight: bold; font-size: 12px; }
+        .badge-healthy { background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
+        .badge-drift { background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .card { background: #131c17; border: 1px solid #1f2d25; border-radius: 12px; padding: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+        th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid #1f2d25; }
+        th { background: #18231d; color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 11px; }
+    </style>
+</head>
+<body>
+    <h1>KrishiLoop Real-Time Statistical Drift Report</h1>
+    <p style="color:#94a3b8;">Evaluated at 2026-10-09 13:45:45 | Live Telemetry Sample: 500 | Prediction Sample: 2000</p>
 
-    <html>
-    <head><title>AgriTech Intelligence Suite — Data Drift Report</title></head>
-    <body style="font-family: sans-serif; padding: 20px; background-color: #0f172a; color: #f8fafc;">
-        <h2>AgriTech Telemetry Drift Report (2026-08-23 18:12:49)</h2>
-        <p>Live Sample Size: 300 | Baseline Size: 25000 | Drifted features: 7/7</p>
-        <table border="1" cellpadding="8" style="border-collapse: collapse; color: #fff;">
-            <tr><th>Feature</th><th>KS Stat</th><th>p-value</th><th>PSI</th><th>Status</th></tr>
-            <tr><td>N</td><td>0.0865</td><td>0.0225</td><td>0.4771</td><td style='color:#ef4444'>DRIFTED</td></tr><tr><td>P</td><td>0.1227</td><td>0.0002</td><td>0.4659</td><td style='color:#ef4444'>DRIFTED</td></tr><tr><td>K</td><td>0.1278</td><td>0.0001</td><td>0.1729</td><td style='color:#ef4444'>DRIFTED</td></tr><tr><td>temperature</td><td>0.2101</td><td>0.0</td><td>0.2336</td><td style='color:#ef4444'>DRIFTED</td></tr><tr><td>humidity</td><td>0.2118</td><td>0.0</td><td>0.3991</td><td style='color:#ef4444'>DRIFTED</td></tr><tr><td>ph</td><td>0.1716</td><td>0.0</td><td>0.2403</td><td style='color:#ef4444'>DRIFTED</td></tr><tr><td>rainfall</td><td>0.1718</td><td>0.0</td><td>0.3166</td><td style='color:#ef4444'>DRIFTED</td></tr>
+    <div class="grid">
+        <div class="card">
+            <h3>Data Drift (Covariate Shift)</h3>
+            <p>Status: <span class="badge badge-drift">DRIFT DETECTED</span></p>
+            <p>Overall Data PSI: <b>1.0757</b></p>
+            <p>Drifted Features: <b>6 / 8</b></p>
+        </div>
+        <div class="card">
+            <h3>Model Drift (Prediction Shift)</h3>
+            <p>Status: <span class="badge badge-drift">DRIFT DETECTED</span></p>
+            <p>Overall Model PSI: <b>6.23</b></p>
+            <p>Drifted Model Heads: <b>4 / 4</b></p>
+        </div>
+    </div>
+
+    <h2>1. Model Prediction Drift Analysis (All 4 Models)</h2>
+    <div class="card">
+        <table>
+            <thead>
+                <tr>
+                    <th>Model Head</th>
+                    <th>Prediction Type</th>
+                    <th>Drift Metric</th>
+                    <th>PSI</th>
+                    <th>p-value</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                
+        <tr>
+            <td style="font-weight:600;">Irrigation Risk Predictor</td>
+            <td>continuous_probability</td>
+            <td>Risk Probability Shift</td>
+            <td>2.617</td>
+            <td>0.0</td>
+            <td style="color:#ef4444; font-weight:bold;">DRIFTED</td>
+        </tr>
+        
+        <tr>
+            <td style="font-weight:600;">Crop Recommender</td>
+            <td>multiclass_categorical</td>
+            <td>Class Frequency PSI</td>
+            <td>10.0595</td>
+            <td>0.0</td>
+            <td style="color:#ef4444; font-weight:bold;">DRIFTED</td>
+        </tr>
+        
+        <tr>
+            <td style="font-weight:600;">Fertilizer Advisory</td>
+            <td>multiclass_categorical</td>
+            <td>Fertilizer Frequency PSI</td>
+            <td>9.9205</td>
+            <td>1.0</td>
+            <td style="color:#ef4444; font-weight:bold;">DRIFTED</td>
+        </tr>
+        
+        <tr>
+            <td style="font-weight:600;">Crop Yield Predictor</td>
+            <td>continuous_regression</td>
+            <td>Predicted Yield Shift</td>
+            <td>2.3229</td>
+            <td>0.0</td>
+            <td style="color:#ef4444; font-weight:bold;">DRIFTED</td>
+        </tr>
+        
+            </tbody>
         </table>
-    </body>
-    </html>
-    
+    </div>
+
+    <h2 style="margin-top:32px;">2. Data Drift Analysis (Sensor Features)</h2>
+    <div class="card">
+        <table>
+            <thead>
+                <tr>
+                    <th>Feature</th>
+                    <th>Baseline Mean</th>
+                    <th>Live Mean</th>
+                    <th>KS Stat</th>
+                    <th>p-value</th>
+                    <th>PSI</th>
+                    <th>Wasserstein Dist</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                
+        <tr>
+            <td style="font-weight:600;">nitrogen</td>
+            <td>50.64</td>
+            <td>51.55</td>
+            <td>0.0732</td>
+            <td>0.01</td>
+            <td>0.0995</td>
+            <td>4.9458</td>
+            <td style="color:#10b981; font-weight:bold;">STABLE</td>
+        </tr>
+        
+        <tr>
+            <td style="font-weight:600;">phosphorus</td>
+            <td>53.26</td>
+            <td>52.88</td>
+            <td>0.1595</td>
+            <td>0.0</td>
+            <td>1.9208</td>
+            <td>11.8818</td>
+            <td style="color:#ef4444; font-weight:bold;">DRIFTED</td>
+        </tr>
+        
+        <tr>
+            <td style="font-weight:600;">potassium</td>
+            <td>42.92</td>
+            <td>50.57</td>
+            <td>0.1122</td>
+            <td>0.0</td>
+            <td>0.658</td>
+            <td>11.2913</td>
+            <td style="color:#ef4444; font-weight:bold;">DRIFTED</td>
+        </tr>
+        
+        <tr>
+            <td style="font-weight:600;">temperature</td>
+            <td>25.65</td>
+            <td>23.61</td>
+            <td>0.2051</td>
+            <td>0.0</td>
+            <td>0.2132</td>
+            <td>2.1048</td>
+            <td style="color:#ef4444; font-weight:bold;">DRIFTED</td>
+        </tr>
+        
+        <tr>
+            <td style="font-weight:600;">humidity</td>
+            <td>71.59</td>
+            <td>85.14</td>
+            <td>0.3866</td>
+            <td>0.0</td>
+            <td>4.9694</td>
+            <td>13.5533</td>
+            <td style="color:#ef4444; font-weight:bold;">DRIFTED</td>
+        </tr>
+        
+        <tr>
+            <td style="font-weight:600;">ph</td>
+            <td>6.47</td>
+            <td>6.6</td>
+            <td>0.0809</td>
+            <td>0.0031</td>
+            <td>0.0411</td>
+            <td>0.1617</td>
+            <td style="color:#10b981; font-weight:bold;">STABLE</td>
+        </tr>
+        
+        <tr>
+            <td style="font-weight:600;">soil_moisture</td>
+            <td>20.3</td>
+            <td>22.5</td>
+            <td>0.1435</td>
+            <td>0.0</td>
+            <td>0.3485</td>
+            <td>2.841</td>
+            <td style="color:#ef4444; font-weight:bold;">DRIFTED</td>
+        </tr>
+        
+        <tr>
+            <td style="font-weight:600;">rainfall</td>
+            <td>104.01</td>
+            <td>121.65</td>
+            <td>0.1677</td>
+            <td>0.0</td>
+            <td>0.3551</td>
+            <td>18.009</td>
+            <td style="color:#ef4444; font-weight:bold;">DRIFTED</td>
+        </tr>
+        
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>

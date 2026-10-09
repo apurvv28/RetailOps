@@ -121,6 +121,36 @@ def seed_initial_users():
                     """,
                     (farmer_id, "Kisan Green Farm", 18.5204, 73.8567, "Pune, Maharashtra", "Paddy, Cotton", '{"soil_moisture_sensor": true, "npk_sensor": true, "weather_station": true}')
                 )
+            # Seed Farms for SQLite
+            cursor.execute("SELECT id FROM users WHERE email = 'admin@agritech.com'")
+            admin_row = cursor.fetchone()
+            admin_id = admin_row[0] if admin_row else 1
+            
+            cursor.execute("SELECT id FROM users WHERE email = 'farmer@agritech.com'")
+            farmer_row = cursor.fetchone()
+            farmer_id = farmer_row[0] if farmer_row else 2
+
+            # Migrate raw_telemetry to ensure farm_id column exists
+            try:
+                cursor.execute("ALTER TABLE raw_telemetry ADD COLUMN farm_id VARCHAR(50)")
+            except Exception:
+                pass
+
+            farms = [
+                ("FARM_MH_PUNE_01", admin_id, farmer_id, "Kisan Green Valley Farm", "PUNE", "Maharashtra", 18.5204, 73.8567, 12.5, "Clayey Loam", "rice", '["soil_moisture_sensor", "npk_sensor", "weather_station"]', "active"),
+                ("FARM_MH_NASHIK_02", admin_id, None, "Godavari Agro Orchards", "NASHIK", "Maharashtra", 20.0059, 73.7898, 25.0, "Black Soil", "grapes", '["soil_moisture_sensor", "npk_sensor", "weather_station"]', "active"),
+                ("FARM_MH_SATARA_03", admin_id, None, "Sahyadri Valley Plantation", "SATARA", "Maharashtra", 17.6805, 74.0183, 18.0, "Red Loamy", "cotton", '["soil_moisture_sensor", "npk_sensor", "weather_station"]', "active"),
+                ("FARM_MH_SOLAPUR_04", admin_id, None, "Solapur Dryland Agro Hub", "SOLAPUR", "Maharashtra", 17.6599, 75.9064, 32.0, "Sandy Loam", "pomegranate", '["soil_moisture_sensor", "weather_station"]', "active"),
+                ("FARM_MH_NAGPUR_05", admin_id, None, "Vidarbha Citrus Agro Estate", "NAGPUR", "Maharashtra", 21.1458, 79.0882, 22.5, "Black Cotton", "orange", '["soil_moisture_sensor", "npk_sensor", "weather_station"]', "active")
+            ]
+            for f in farms:
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO farms (farm_id, admin_id, farmer_id, farm_name, district, region, gps_latitude, gps_longitude, acreage, soil_type, current_crop, sensor_types, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, f
+                )
+
             conn.commit()
             conn.close()
         else:
@@ -129,7 +159,10 @@ def seed_initial_users():
                 trans = conn.begin()
                 admin_check = conn.execute(text("SELECT id FROM users WHERE email = 'admin@agritech.com'")).fetchone()
                 if not admin_check:
-                    conn.execute(text("INSERT INTO users (google_id, email, name, role) VALUES ('demo-admin-google-id', 'admin@agritech.com', 'AgriOps System Admin', 'admin')"))
+                    res_a = conn.execute(text("INSERT INTO users (google_id, email, name, role) VALUES ('demo-admin-google-id', 'admin@agritech.com', 'AgriOps System Admin', 'admin') RETURNING id")).fetchone()
+                    admin_id = res_a[0]
+                else:
+                    admin_id = admin_check[0]
                 
                 farmer_check = conn.execute(text("SELECT id FROM users WHERE email = 'farmer@agritech.com'")).fetchone()
                 if not farmer_check:
@@ -139,9 +172,44 @@ def seed_initial_users():
                         INSERT INTO farmer_profiles (user_id, farm_name, gps_latitude, gps_longitude, region, current_crops, sensors_config)
                         VALUES ({farmer_id}, 'Kisan Green Farm', 18.5204, 73.8567, 'Pune, Maharashtra', 'Paddy, Cotton', '{{"soil_moisture_sensor": true, "npk_sensor": true, "weather_station": true}}')
                     """))
+                else:
+                    farmer_id = farmer_check[0]
+
+                try:
+                    conn.execute(text("ALTER TABLE raw_telemetry ADD COLUMN farm_id VARCHAR(50);"))
+                except Exception:
+                    pass
+
+                farms = [
+                    ("FARM_MH_PUNE_01", admin_id, farmer_id, "Kisan Green Valley Farm", "PUNE", "Maharashtra", 18.5204, 73.8567, 12.5, "Clayey Loam", "rice", '["soil_moisture_sensor", "npk_sensor", "weather_station"]', "active"),
+                    ("FARM_MH_NASHIK_02", admin_id, None, "Godavari Agro Orchards", "NASHIK", "Maharashtra", 20.0059, 73.7898, 25.0, "Black Soil", "grapes", '["soil_moisture_sensor", "npk_sensor", "weather_station"]', "active"),
+                    ("FARM_MH_SATARA_03", admin_id, None, "Sahyadri Valley Plantation", "SATARA", "Maharashtra", 17.6805, 74.0183, 18.0, "Red Loamy", "cotton", '["soil_moisture_sensor", "npk_sensor", "weather_station"]', "active"),
+                    ("FARM_MH_SOLAPUR_04", admin_id, None, "Solapur Dryland Agro Hub", "SOLAPUR", "Maharashtra", 17.6599, 75.9064, 32.0, "Sandy Loam", "pomegranate", '["soil_moisture_sensor", "weather_station"]', "active"),
+                    ("FARM_MH_NAGPUR_05", admin_id, None, "Vidarbha Citrus Agro Estate", "NAGPUR", "Maharashtra", 21.1458, 79.0882, 22.5, "Black Cotton", "orange", '["soil_moisture_sensor", "npk_sensor", "weather_station"]', "active")
+                ]
+                for f in farms:
+                    conn.execute(text("""
+                        INSERT INTO farms (farm_id, admin_id, farmer_id, farm_name, district, region, gps_latitude, gps_longitude, acreage, soil_type, current_crop, sensor_types, status)
+                        VALUES (:fid, :aid, :fmid, :fname, :dist, :reg, :lat, :lng, :ac, :stype, :crop, :sensors, :status)
+                        ON CONFLICT (farm_id) DO UPDATE SET 
+                            admin_id = EXCLUDED.admin_id,
+                            farmer_id = EXCLUDED.farmer_id,
+                            farm_name = EXCLUDED.farm_name,
+                            district = EXCLUDED.district,
+                            gps_latitude = EXCLUDED.gps_latitude,
+                            gps_longitude = EXCLUDED.gps_longitude,
+                            acreage = EXCLUDED.acreage,
+                            soil_type = EXCLUDED.soil_type,
+                            current_crop = EXCLUDED.current_crop,
+                            sensor_types = EXCLUDED.sensor_types
+                    """), {
+                        "fid": f[0], "aid": f[1], "fmid": f[2], "fname": f[3], "dist": f[4],
+                        "reg": f[5], "lat": f[6], "lng": f[7], "ac": f[8], "stype": f[9],
+                        "crop": f[10], "sensors": f[11], "status": f[12]
+                    })
                 trans.commit()
     except Exception as e:
-        print(f"Seed initial users notice: {e}")
+        print(f"Seed initial users and farms notice: {e}")
 
 def seed_initial_models():
     models = [

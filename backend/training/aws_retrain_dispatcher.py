@@ -25,13 +25,28 @@ if os.path.exists(dotenv_path):
 else:
     load_dotenv(override=True)
 
+AWS_PROFILE = os.getenv("AWS_PROFILE", "krishiloop")
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 AWS_DEFAULT_REGION = os.getenv("AWS_DEFAULT_REGION", "ap-south-1")
 AWS_S3_BUCKET = os.getenv("AWS_S3_BUCKET", "krishiloop-ml-artifacts")
-AWS_SAGEMAKER_ROLE_ARN = os.getenv("AWS_SAGEMAKER_ROLE_ARN")
+AWS_SAGEMAKER_ROLE_ARN = os.getenv("AWS_SAGEMAKER_ROLE_ARN", "arn:aws:iam::313696198691:role/AmazonSageMaker-ExecutionRole-KrishiLoop")
 AWS_LAMBDA_RETRAIN_FUNCTION = os.getenv("AWS_LAMBDA_RETRAIN_FUNCTION", "krishiloop-retrain-executor")
 USE_AWS_CLOUD = os.getenv("USE_AWS_CLOUD_RETRAINING", "true").lower() == "true"
+
+def get_boto3_session():
+    region = AWS_DEFAULT_REGION
+    profile = AWS_PROFILE
+    try:
+        if profile:
+            return boto3.Session(profile_name=profile, region_name=region)
+    except Exception:
+        pass
+    return boto3.Session(
+        aws_access_key_id=AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+        region_name=region
+    )
 
 def get_db_connection():
     backend_dir = os.path.dirname(os.path.dirname(__file__))
@@ -63,17 +78,18 @@ def update_job_status(job_id: str, status: str, metrics_summary: dict = None):
         logger.error(f"Error updating job status for {job_id}: {e}")
 
 def create_s3_data_snapshot(job_id: str) -> str:
-    """Exports raw_telemetry and crop dataset snapshot to S3 bucket."""
+    """Exports raw_telemetry and crop dataset snapshot to S3 bucket for SageMaker training."""
     try:
-        s3_client = boto3.client(
-            's3',
-            region_name=AWS_DEFAULT_REGION,
-            aws_access_key_id=AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=AWS_SECRET_ACCESS_KEY
-        )
+        # First sync latest full telemetry to master S3 storage
+        from backend.telemetry.s3_archiver import sync_telemetry_to_s3
+        sync_res = sync_telemetry_to_s3()
+        logger.info(f"Telemetry sync to S3 prior to SageMaker job {job_id}: {sync_res.get('status')} ({sync_res.get('records')} records)")
+
+        session = get_boto3_session()
+        s3_client = session.client('s3')
         
         conn = get_db_connection()
-        df = pd.read_sql("SELECT * FROM raw_telemetry ORDER BY id DESC LIMIT 1000", conn)
+        df = pd.read_sql("SELECT * FROM raw_telemetry ORDER BY id DESC LIMIT 5000", conn)
         conn.close()
         
         tmp_path = os.path.join(os.path.dirname(__file__), f"snapshot_{job_id}.csv")
@@ -89,23 +105,19 @@ def create_s3_data_snapshot(job_id: str) -> str:
         return f"s3://{AWS_S3_BUCKET}/{s3_key}"
     except Exception as e:
         logger.warning(f"S3 snapshot creation notice: {e}")
-        return f"local_snapshot_{job_id}.csv"
+        return f"s3://{AWS_S3_BUCKET}/telemetry/raw_telemetry_master.csv"
 
 def trigger_sagemaker_training_job(job_id: str, s3_data_uri: str) -> dict:
     """Submits a native AWS SageMaker Training Job to AWS Cloud infrastructure via boto3."""
-    sm_client = boto3.client(
-        'sagemaker',
-        region_name=AWS_DEFAULT_REGION,
-        aws_access_key_id=AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=AWS_SECRET_ACCESS_KEY
-    )
+    session = get_boto3_session()
+    sm_client = session.client('sagemaker')
     
     # Official AWS SageMaker Scikit-Learn / LightGBM container URI for ap-south-1
     image_uri = f"683313688378.dkr.ecr.{AWS_DEFAULT_REGION}.amazonaws.com/sagemaker-scikit-learn:1.2-1-cpu-py3"
     clean_job_name = f"krishiloop-retrain-{job_id.replace('_', '-').replace('.', '-')}"[:63].lower()
 
-    # Try standard SageMaker instance types (ml.m5.large or ml.t3.medium Free Tier)
-    instance_types = ['ml.m5.large', 'ml.t3.medium', 'ml.m4.xlarge']
+    # Try standard SageMaker training instance types (ml.m5.large, ml.c5.large, ml.m4.xlarge, ml.c4.xlarge)
+    instance_types = ['ml.m5.large', 'ml.c5.large', 'ml.m4.xlarge', 'ml.c4.xlarge']
     last_err = None
 
     for inst_type in instance_types:
@@ -166,14 +178,10 @@ def dispatch_retraining_job(job_id: str, trigger_source: str, model_keys: list =
     
     # Check if AWS credentials work
     is_aws_available = False
-    if USE_AWS_CLOUD and AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY and not AWS_ACCESS_KEY_ID.startswith("YOUR_"):
+    if USE_AWS_CLOUD:
         try:
-            s3 = boto3.client(
-                's3',
-                region_name=AWS_DEFAULT_REGION,
-                aws_access_key_id=AWS_ACCESS_KEY_ID,
-                aws_secret_access_key=AWS_SECRET_ACCESS_KEY
-            )
+            session = get_boto3_session()
+            s3 = session.client('s3')
             s3.list_buckets()
             is_aws_available = True
         except Exception as e:

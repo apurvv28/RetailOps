@@ -65,19 +65,22 @@ CROPS_LIST = [
 FERTILIZERS_LIST = ["Urea", "DAP", "14-35-14", "28-28", "17-17-17", "20-20", "10-26-26"]
 
 def save_event_to_db(event: dict):
-    """Inserts an AgriTech raw telemetry event dictionary into raw_telemetry table."""
+    """Inserts a real AgriTech sensor telemetry event into raw_telemetry table."""
+    farm_id = event.get("farm_id") or event.get("field_id", "FARM_MH_PUNE_01")
+    field_id = event.get("field_id") or farm_id
     query = text(
         """
         INSERT INTO raw_telemetry (
-            field_id, nitrogen, phosphorus, potassium, temperature, humidity, ph, soil_moisture, rainfall, soil_type, crop_type
+            farm_id, field_id, nitrogen, phosphorus, potassium, temperature, humidity, ph, soil_moisture, rainfall, soil_type, crop_type
         ) VALUES (
-            :field_id, :nitrogen, :phosphorus, :potassium, :temperature, :humidity, :ph, :soil_moisture, :rainfall, :soil_type, :crop_type
+            :farm_id, :field_id, :nitrogen, :phosphorus, :potassium, :temperature, :humidity, :ph, :soil_moisture, :rainfall, :soil_type, :crop_type
         )
         """
     )
     with engine.begin() as conn:
         conn.execute(query, {
-            "field_id": event.get("field_id", "FIELD_MH_01"),
+            "farm_id": farm_id,
+            "field_id": field_id,
             "nitrogen": event.get("nitrogen", 50.0),
             "phosphorus": event.get("phosphorus", 40.0),
             "potassium": event.get("potassium", 40.0),
@@ -87,8 +90,19 @@ def save_event_to_db(event: dict):
             "soil_moisture": event.get("soil_moisture", 25.0),
             "rainfall": event.get("rainfall", 100.0),
             "soil_type": event.get("soil_type", "Loamy"),
-            "crop_type": event.get("crop_type", "maize")
+            "crop_type": event.get("crop_type", "rice")
         })
+        # Update heartbeat
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            conn.execute(text(
+                """
+                INSERT OR REPLACE INTO sensor_heartbeat (field_id, sensor_type, last_ping)
+                VALUES (:field_id, 'Multi-Sensor Pod (NPK, Temp, Moisture)', :last_ping)
+                """
+            ), {"field_id": farm_id, "last_ping": now_str})
+        except Exception:
+            pass
 
 def run_multi_modal_inferences(event: dict):
     """Executes real multi-head ML model inferences and logs outputs into decision_log."""
@@ -241,7 +255,10 @@ def run_multi_modal_inferences(event: dict):
                 "timestamp": entry[6]
             })
 
+_messages_since_s3_sync = 0
+
 def process_message(event_data: dict):
+    global _messages_since_s3_sync
     field_id = event_data.get("field_id", "FIELD_UNKNOWN")
     logger.info(f"Ingested event -> Field: {field_id}, Temp: {event_data.get('temperature')}°C, SoilMoisture: {event_data.get('soil_moisture')}%")
     
@@ -249,6 +266,15 @@ def process_message(event_data: dict):
         save_event_to_db(event_data)
         run_multi_modal_inferences(event_data)
         logger.info(f"Logged multi-head predictions to decision_log for {field_id}")
+        
+        _messages_since_s3_sync += 1
+        if _messages_since_s3_sync >= 25:
+            try:
+                from backend.telemetry.s3_archiver import sync_telemetry_to_s3
+                sync_telemetry_to_s3()
+                _messages_since_s3_sync = 0
+            except Exception as s3_err:
+                logger.warning(f"Periodic S3 telemetry sync notice: {s3_err}")
     except Exception as e:
         logger.error(f"Database error writing telemetry event for {field_id}: {e}")
 

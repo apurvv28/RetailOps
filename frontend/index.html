@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AgriTech Intelligence Suite — Modern Multi-Model MLOps Platform</title>
+    <title>KrishiLoop — Smart Farm Intelligence & Agriculture Advisory Platform</title>
     <!-- Google Fonts: Plus Jakarta Sans & Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,6 +12,21 @@
   </head>
   <body class="bg-[#F3F5F3] dark:bg-[#060907] text-slate-900 dark:text-slate-100 font-sans antialiased min-h-screen selection:bg-emerald-500 selection:text-white transition-colors duration-200">
     <div id="root"></div>
+
+    <!-- Free Google Website Translator Widget (Low Latency CDN) -->
+    <div id="google_translate_element" style="display:none"></div>
+    <script type="text/javascript">
+      function googleTranslateElementInit() {
+        if (window.google && window.google.translate) {
+          new window.google.translate.TranslateElement({
+            pageLanguage: 'en',
+            includedLanguages: 'en,hi,mr,gu,ta,te',
+            autoDisplay: false
+          }, 'google_translate_element');
+        }
+      }
+    </script>
+    <script type="text/javascript" src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

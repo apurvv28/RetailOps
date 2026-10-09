@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { FarmerService } from '../../services/api';
-import { User, MapPin, Sprout, Cpu, Save, CheckCircle2, Navigation, Radio } from 'lucide-react';
-import Swal from 'sweetalert2';
+import { Card, CardTitle, CardDescription } from '../../components/ui/Card';
+import { Badge } from '../../components/ui/Badge';
+import { Button } from '../../components/ui/Button';
+import { PageHeader } from '../../components/ui/PageHeader';
+import { Toast } from '../../components/ui/Toast';
+import { User, MapPin, Sprout, Cpu, Save, CheckCircle2, Navigation, Radio, CloudSun } from 'lucide-react';
 
 export const FarmerProfile = () => {
   const [farmName, setFarmName] = useState('Kisan Green Farm');
@@ -17,9 +21,8 @@ export const FarmerProfile = () => {
   });
 
   const [loading, setLoading] = useState(false);
-  const [saved, setSaved] = useState(false);
-
   const [weather, setWeather] = useState(null);
+  const [toastMessage, setToastMessage] = useState(null);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -59,22 +62,22 @@ export const FarmerProfile = () => {
     if (latitude && longitude) fetchWeather();
   }, [latitude, longitude]);
 
-
   const handleDetectGPS = () => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           setLatitude(parseFloat(pos.coords.latitude.toFixed(6)));
           setLongitude(parseFloat(pos.coords.longitude.toFixed(6)));
-          Swal.fire({
-            title: 'GPS Location Detected!',
-            text: `Lat: ${pos.coords.latitude.toFixed(4)}, Lng: ${pos.coords.longitude.toFixed(4)}`,
-            icon: 'success',
-            timer: 2000
+          setToastMessage({
+            type: 'success',
+            text: `GPS coordinates locked: Lat ${pos.coords.latitude.toFixed(4)}, Lng ${pos.coords.longitude.toFixed(4)}`,
           });
         },
         () => {
-          Swal.fire({ title: 'GPS Notice', text: 'Using default farm coordinates (Pune, Maharashtra).', icon: 'info' });
+          setToastMessage({
+            type: 'info',
+            text: 'Using regional default coordinates (Pune, Maharashtra).',
+          });
         }
       );
     }
@@ -83,7 +86,6 @@ export const FarmerProfile = () => {
   const handleSave = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setSaved(false);
 
     try {
       await FarmerService.updateProfile({
@@ -94,231 +96,254 @@ export const FarmerProfile = () => {
         current_crops: currentCrops,
         sensors_config: sensors
       });
-      setSaved(true);
-      Swal.fire({
-        title: 'Profile Updated!',
-        text: 'Your farm coordinates, crops, and sensor configurations have been saved.',
-        icon: 'success',
-        confirmButtonColor: '#10b981'
+      setToastMessage({
+        type: 'success',
+        text: 'Farm profile and telemetry configurations saved successfully.',
       });
     } catch (err) {
-      Swal.fire({ title: 'Profile Saved', text: 'Farmer profile updated.', icon: 'success' });
+      setToastMessage({
+        type: 'error',
+        text: 'Failed to update farmer profile.',
+      });
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
-      {/* Header */}
-      <div className="pb-4 border-b border-slate-800">
-        <div className="flex items-center gap-2 text-purple-400 font-semibold text-sm mb-1">
-          <User className="w-4 h-4" /> Farmer Profile & Infrastructure Tab
-        </div>
-        <p className="text-slate-400 text-sm">Configure farm GPS location, active crops planted, and sandboxed sensor connections</p>
-      </div>
+    <div className="space-y-8 pb-10 max-w-4xl mx-auto">
+      {/* Fernly Page Header */}
+      <PageHeader
+        title="Farm Land Profile & Sensor Setup"
+        subtitle="Manage GPS coordinates, active crops planted, and sandboxed telemetry sensor gateways."
+      />
 
-      {/* Weather Card */}
-
+      {/* Weather Forecast Card */}
       {weather && (
-        <div className="bg-gradient-to-r from-sky-900/40 to-indigo-900/40 border border-sky-500/30 rounded-3xl p-5 shadow-xl flex items-center justify-between">
-          <div>
-            <div className="text-xs font-bold text-sky-400 uppercase tracking-wider">Live Local Weather (Open-Meteo GPS Forecast)</div>
-            <div className="text-2xl font-black text-white mt-1">{weather.temp}°C</div>
-            <div className="text-xs text-slate-300">Humidity: {weather.humidity}% | Rain: {weather.rain} mm</div>
+        <Card className="p-5 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 flex items-center justify-center">
+              <CloudSun className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                Live Local Weather (Open-Meteo GPS Microclimate)
+              </div>
+              <div className="text-2xl font-extrabold text-slate-900 dark:text-white mt-0.5">
+                {weather.temp}°C
+              </div>
+              <div className="text-xs text-slate-500">
+                Humidity: <strong>{weather.humidity}%</strong> • Precipitation: <strong>{weather.rain} mm</strong>
+              </div>
+            </div>
           </div>
-          <div className="text-right">
-            <span className="px-3 py-1 bg-sky-500/20 text-sky-300 border border-sky-500/40 rounded-xl text-xs font-bold font-mono">
-              GPS Synchronized
-            </span>
-          </div>
-        </div>
+          <Badge variant="accent">
+            GPS Synchronized
+          </Badge>
+        </Card>
       )}
-
 
       <form onSubmit={handleSave} className="space-y-6">
         {/* Section 1: Farm Identity & GPS Location */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-white text-base flex items-center gap-2">
-              <MapPin className="w-5 h-5 text-purple-400" />
-              Farm Identity & GPS Coordinates
-            </h3>
+        <Card className="p-6 space-y-5">
+          <div className="flex items-center justify-between pb-2 border-b border-black/[0.05] dark:border-white/[0.06]">
+            <div>
+              <CardTitle>Farm Identity & GPS Coordinates</CardTitle>
+              <CardDescription>Official land registration and geospatial coordinates</CardDescription>
+            </div>
 
-            <button
-              type="button"
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={Navigation}
               onClick={handleDetectGPS}
-              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-purple-300 font-semibold rounded-xl text-xs flex items-center gap-1.5 transition-all"
             >
-              <Navigation className="w-3.5 h-3.5" />
               Detect My GPS
-            </button>
+            </Button>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-400 mb-1">Farm Name</label>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                Farm Name
+              </label>
               <input
                 type="text"
                 value={farmName}
                 onChange={(e) => setFarmName(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-semibold text-sm focus:border-purple-500 focus:outline-none"
+                className="w-full px-3.5 py-2.5 text-xs bg-slate-50 dark:bg-black/30 hairline-border rounded-xl font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--accent-light)]"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-400 mb-1">Region / District</label>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                Region / District
+              </label>
               <input
                 type="text"
                 value={region}
                 onChange={(e) => setRegion(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-semibold text-sm focus:border-purple-500 focus:outline-none"
+                className="w-full px-3.5 py-2.5 text-xs bg-slate-50 dark:bg-black/30 hairline-border rounded-xl font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--accent-light)]"
                 required
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 pt-2">
+          <div className="grid grid-cols-2 gap-4 pt-1">
             <div>
-              <label className="block text-xs font-semibold text-slate-400 mb-1">GPS Latitude</label>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                GPS Latitude
+              </label>
               <input
                 type="number"
                 step="0.0001"
                 value={latitude}
                 onChange={(e) => setLatitude(parseFloat(e.target.value))}
-                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-semibold text-sm focus:border-purple-500 focus:outline-none"
+                className="w-full px-3.5 py-2.5 text-xs bg-slate-50 dark:bg-black/30 hairline-border rounded-xl font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--accent-light)] font-mono"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-400 mb-1">GPS Longitude</label>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                GPS Longitude
+              </label>
               <input
                 type="number"
                 step="0.0001"
                 value={longitude}
                 onChange={(e) => setLongitude(parseFloat(e.target.value))}
-                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-semibold text-sm focus:border-purple-500 focus:outline-none"
+                className="w-full px-3.5 py-2.5 text-xs bg-slate-50 dark:bg-black/30 hairline-border rounded-xl font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--accent-light)] font-mono"
                 required
               />
             </div>
           </div>
 
-          {/* Location Visual Box */}
-          <div className="p-4 rounded-2xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-between text-xs text-purple-200">
-            <div className="flex items-center gap-2">
-              <MapPin className="w-5 h-5 text-purple-400" />
-              <span>Target Farm Map Coordinates: {latitude}° N, {longitude}° E</span>
+          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.03] hairline-border flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
+            <div className="flex items-center gap-2 font-mono">
+              <MapPin className="w-4 h-4 text-[var(--accent-primary)] dark:text-[var(--accent-light)]" />
+              <span>Plot Coordinates: {latitude}° N, {longitude}° E</span>
             </div>
-            <span className="font-semibold px-2.5 py-1 rounded-lg bg-purple-500/20 text-purple-300">GPS Locked</span>
+            <Badge variant="success" dot className="text-[10px]">
+              GPS Locked
+            </Badge>
           </div>
-        </div>
+        </Card>
 
         {/* Section 2: Current Crops Planted */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
-          <h3 className="font-bold text-white text-base flex items-center gap-2">
-            <Sprout className="w-5 h-5 text-emerald-400" />
-            Crops Planted Currently
-          </h3>
+        <Card className="p-6 space-y-4">
+          <div className="border-b border-black/[0.05] dark:border-white/[0.06] pb-2">
+            <CardTitle>Active Planted Crops</CardTitle>
+            <CardDescription>Crops currently cultivated in the field</CardDescription>
+          </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-400 mb-1">Active Crops List (Comma-separated)</label>
+            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+              Active Crops List (Comma-separated)
+            </label>
             <input
               type="text"
               value={currentCrops}
               onChange={(e) => setCurrentCrops(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-semibold text-sm focus:border-emerald-500 focus:outline-none"
+              className="w-full px-3.5 py-2.5 text-xs bg-slate-50 dark:bg-black/30 hairline-border rounded-xl font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--accent-light)]"
               placeholder="e.g. Paddy, Cotton, Wheat, Sugarcane"
             />
           </div>
 
           <div className="flex flex-wrap gap-2 pt-1">
             {currentCrops.split(',').map((crop, idx) => (
-              <span key={idx} className="px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center gap-1.5">
+              <span 
+                key={idx} 
+                className="px-3 py-1.5 rounded-full bg-[var(--accent-tint)] dark:bg-[var(--accent-dark-tint)] text-[var(--accent-primary)] dark:text-[var(--accent-light)] text-xs font-bold flex items-center gap-1.5 hairline-border"
+              >
                 <Sprout className="w-3.5 h-3.5" />
                 {crop.trim()}
               </span>
             ))}
           </div>
-        </div>
+        </Card>
 
-        {/* Section 3: Sandboxed Sensors Connections */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-white text-base flex items-center gap-2">
-              <Cpu className="w-5 h-5 text-cyan-400" />
-              Sensors Connection (Sandboxed)
-            </h3>
-            <span className="text-xs px-2.5 py-1 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-semibold">
-              Sandboxed Mode Active
-            </span>
+        {/* Section 3: Telemetry Sensor Gateway Toggles */}
+        <Card className="p-6 space-y-4">
+          <div className="flex items-center justify-between border-b border-black/[0.05] dark:border-white/[0.06] pb-2">
+            <div>
+              <CardTitle>Telemetry Sensor Pods</CardTitle>
+              <CardDescription>Hardware telemetry sensors mapped to this farm land</CardDescription>
+            </div>
+            <Badge variant="accent">Sandboxed Gateways</Badge>
           </div>
 
           <div className="space-y-3">
-            {/* Sensor 1 */}
-            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between">
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-white/[0.03] hairline-border flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <Radio className={`w-5 h-5 ${sensors.soil_moisture_sensor ? 'text-emerald-400 animate-pulse' : 'text-slate-600'}`} />
+                <Radio className={`w-4 h-4 ${sensors.soil_moisture_sensor ? 'text-emerald-500 animate-pulse' : 'text-slate-400'}`} />
                 <div>
-                  <div className="text-sm font-semibold text-white">Soil Moisture Sensor Node #1</div>
-                  <div className="text-xs text-slate-400">Continuous telemetry streaming (0.5s rate)</div>
+                  <div className="text-xs font-bold text-slate-900 dark:text-white">Soil Moisture Sensor Node #1</div>
+                  <div className="text-[11px] text-slate-400">Continuous telemetry streaming rate (0.5s)</div>
                 </div>
               </div>
               <input
                 type="checkbox"
                 checked={sensors.soil_moisture_sensor}
                 onChange={(e) => setSensors({ ...sensors, soil_moisture_sensor: e.target.checked })}
-                className="w-5 h-5 accent-emerald-500 cursor-pointer"
+                className="w-4 h-4 rounded text-[var(--accent-primary)] focus:ring-[var(--accent-light)] cursor-pointer"
               />
             </div>
 
-            {/* Sensor 2 */}
-            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between">
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-white/[0.03] hairline-border flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <Radio className={`w-5 h-5 ${sensors.npk_sensor ? 'text-amber-400 animate-pulse' : 'text-slate-600'}`} />
+                <Radio className={`w-4 h-4 ${sensors.npk_sensor ? 'text-amber-500 animate-pulse' : 'text-slate-400'}`} />
                 <div>
-                  <div className="text-sm font-semibold text-white">NPK Soil Spectrometer Probe Array</div>
-                  <div className="text-xs text-slate-400">Multi-depth soil chemistry analysis</div>
+                  <div className="text-xs font-bold text-slate-900 dark:text-white">NPK Soil Spectrometer Probe Array</div>
+                  <div className="text-[11px] text-slate-400">Multi-depth soil chemistry analysis</div>
                 </div>
               </div>
               <input
                 type="checkbox"
                 checked={sensors.npk_sensor}
                 onChange={(e) => setSensors({ ...sensors, npk_sensor: e.target.checked })}
-                className="w-5 h-5 accent-amber-500 cursor-pointer"
+                className="w-4 h-4 rounded text-[var(--accent-primary)] focus:ring-[var(--accent-light)] cursor-pointer"
               />
             </div>
 
-            {/* Sensor 3 */}
-            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between">
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-white/[0.03] hairline-border flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <Radio className={`w-5 h-5 ${sensors.weather_station ? 'text-indigo-400 animate-pulse' : 'text-slate-600'}`} />
+                <Radio className={`w-4 h-4 ${sensors.weather_station ? 'text-sky-500 animate-pulse' : 'text-slate-400'}`} />
                 <div>
-                  <div className="text-sm font-semibold text-white">Weather & Microclimate Station</div>
-                  <div className="text-xs text-slate-400">Ambient temp, humidity & rainfall sensor</div>
+                  <div className="text-xs font-bold text-slate-900 dark:text-white">Weather & Microclimate Station</div>
+                  <div className="text-[11px] text-slate-400">Ambient temp, humidity & rainfall sensor</div>
                 </div>
               </div>
               <input
                 type="checkbox"
                 checked={sensors.weather_station}
                 onChange={(e) => setSensors({ ...sensors, weather_station: e.target.checked })}
-                className="w-5 h-5 accent-indigo-500 cursor-pointer"
+                className="w-4 h-4 rounded text-[var(--accent-primary)] focus:ring-[var(--accent-light)] cursor-pointer"
               />
             </div>
           </div>
-        </div>
+        </Card>
 
         {/* Save Button */}
-        <button
+        <Button
           type="submit"
-          disabled={loading}
-          className="w-full py-4 px-6 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-2xl transition-all shadow-xl shadow-purple-900/30 flex items-center justify-center gap-2 text-base disabled:opacity-50"
+          variant="primary"
+          size="lg"
+          icon={Save}
+          loading={loading}
+          className="w-full"
         >
-          {saved ? <CheckCircle2 className="w-5 h-5" /> : <Save className="w-5 h-5" />}
-          {loading ? 'Saving Changes...' : saved ? 'Profile Saved Successfully!' : 'Save Farmer Profile'}
-        </button>
+          Save Farmer Profile & Sensor Setup
+        </Button>
       </form>
+
+      <Toast
+        isOpen={!!toastMessage}
+        message={toastMessage?.text}
+        type={toastMessage?.type}
+        onClose={() => setToastMessage(null)}
+      />
     </div>
   );
 };

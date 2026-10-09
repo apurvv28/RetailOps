@@ -3,13 +3,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X } from 'lucide-react';
 import { cn } from '../../utils/cn';
 
-export const Modal = ({
+export const Drawer = ({
   isOpen,
   onClose,
   title,
   subtitle,
   children,
-  size = 'md',
+  width = 'max-w-md',
 }) => {
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -25,41 +25,33 @@ export const Modal = ({
     };
   }, [isOpen, onClose]);
 
-  const sizeMap = {
-    sm: 'max-w-md',
-    md: 'max-w-xl',
-    lg: 'max-w-3xl',
-    xl: 'max-w-5xl',
-  };
-
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          {/* Dimmed Backdrop */}
+        <div className="fixed inset-0 z-50 flex justify-end">
+          {/* Dimmed backdrop */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
+            transition={{ duration: 0.2 }}
             onClick={onClose}
-            className="fixed inset-0 bg-slate-950/65 backdrop-blur-md"
+            className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm"
           />
 
-          {/* Modal Card */}
+          {/* Sliding panel */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.96, y: 8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 8 }}
-            transition={{ type: 'spring', stiffness: 350, damping: 28 }}
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ type: 'spring', stiffness: 320, damping: 32 }}
             className={cn(
-              "relative w-full bg-[#FFFFFF] dark:bg-[#121A15] rounded-[24px] shadow-2xl hairline-border z-10 overflow-hidden flex flex-col",
-              sizeMap[size]
+              "relative w-full h-full bg-[#FBFDFB] dark:bg-[#111A15] shadow-2xl z-10 flex flex-col border-l hairline-border overflow-hidden",
+              width
             )}
-            style={{ maxHeight: '90vh' }}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-6 py-5 border-b border-black/[0.05] dark:border-white/[0.06]">
+            <div className="px-6 py-5 border-b border-black/[0.06] dark:border-white/[0.06] flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white leading-tight">
                   {title}
@@ -79,8 +71,8 @@ export const Modal = ({
               </button>
             </div>
 
-            {/* Body */}
-            <div className="p-6 overflow-y-auto">
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {children}
             </div>
           </motion.div>

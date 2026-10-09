@@ -1,169 +1,165 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { DashboardService } from '../services/api';
-import {
-  MOCK_PREDICTIONS, MOCK_ALERTS, MOCK_EVENTS,
-  MOCK_SYSTEM_HEALTH, MOCK_METRICS, MOCK_DRIFT_STATUS
-} from '../utils/helpers';
-import Swal from 'sweetalert2';
 
 const DashboardContext = createContext();
-export const useDashboard = () => useContext(DashboardContext);
+export const useDashboard = () => {
+  const context = useContext(DashboardContext);
+  if (!context) {
+    return {
+      predictions: [],
+      alerts: [],
+      driftStatus: null,
+      rawEvents: [],
+      adminFarms: [],
+      selectedFarmId: 'all',
+      setSelectedFarmId: () => {},
+      systemHealth: null,
+      metrics: null,
+      metricsHistory: [],
+      loading: false,
+      error: null,
+      lastRefreshed: new Date(),
+      isPipelineActive: false,
+      refetch: () => {},
+      refreshData: () => {},
+      triggerObservation: () => {},
+    };
+  }
+  return context;
+};
 
 export const DashboardProvider = ({ children }) => {
   const [predictions, setPredictions] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [driftStatus, setDriftStatus] = useState(null);
   const [rawEvents, setRawEvents] = useState([]);
+  const [adminFarms, setAdminFarms] = useState([]);
+  const [selectedFarmId, setSelectedFarmId] = useState('all');
   const [systemHealth, setSystemHealth] = useState(null);
   const [metrics, setMetrics] = useState(null);
-  const [metricsHistory, setMetricsHistory] = useState([]); // rolling 20-point history for charts
+  const [metricsHistory, setMetricsHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
-  const [isPipelineActive, setIsPipelineActive] = useState(false); // triggers pipeline animation
+  const [isPipelineActive, setIsPipelineActive] = useState(false);
 
-  const prevHighRiskIds = useRef(new Set());
   const REFRESH_INTERVAL = parseInt(import.meta.env.VITE_REFRESH_INTERVAL || '3000', 10);
-
-  const showHighRiskToast = (field_id, prob) => {
-    // Alert popups completely removed per user request.
-  };
 
   const fetchAll = useCallback(async (isInitial = false) => {
     if (isInitial) setLoading(true);
     try {
-      const [predsRes, alertsRes, driftRes, eventsRes, healthRes, metricsRes] = await Promise.allSettled([
+      const [predsRes, alertsRes, driftRes, eventsRes, healthRes, metricsRes, farmsRes] = await Promise.allSettled([
         DashboardService.getRecentPredictions(100),
         DashboardService.getAlerts(100),
         DashboardService.getDriftStatus(),
-        DashboardService.getRawEvents(50),
+        DashboardService.getRawEvents(100),
         DashboardService.getSystemHealth(),
         DashboardService.getMetrics(),
+        DashboardService.getAdminFarms(),
       ]);
 
       if (predsRes.status === 'fulfilled') {
         const raw = predsRes.value?.predictions || [];
-        const normalized = (raw.length > 0 ? raw : MOCK_PREDICTIONS).map((p, idx) => {
-          const prob = p.prediction_prob ?? p.confidence_score ?? 0.85;
+        const normalized = raw.map((p, idx) => {
+          const prob = p.prediction_prob ?? p.confidence_score ?? 0.0;
           return {
             ...p,
             id: p.id || `pred_${idx}`,
-            field_id: p.field_id || p.sku || 'FIELD_MH_01',
+            field_id: p.field_id || p.farm_id || 'FARM_MH_PUNE_01',
+            farm_id: p.farm_id || p.field_id || 'FARM_MH_PUNE_01',
             model_type: p.model_type || 'irrigation',
-            prediction_output: p.prediction_output || 'Optimal Moisture',
+            prediction_output: p.prediction_output || 'Normal',
             prediction_prob: prob,
             confidence_score: prob,
-            model_version: p.model_version || 'v3.0.0 (Production)',
+            model_version: p.model_version || 'Production v2.0',
             timestamp: p.timestamp || new Date().toISOString(),
-            top_features: p.top_features || [
-              { feature: 'soil_moisture_3d_avg', importance: 0.45, value: '14.2%' },
-              { feature: 'nitrogen_level', importance: 0.28, value: '45' },
-              { feature: 'temperature_c', importance: 0.17, value: '28.5°C' },
-              { feature: 'rainfall_mm', importance: 0.10, value: '120mm' },
-            ]
+            top_features: p.top_features || []
           };
-        });
-
-        normalized.forEach(p => {
-          if (p.prediction_prob >= 0.7 && !prevHighRiskIds.current.has(p.id)) {
-            showHighRiskToast(p.field_id, p.prediction_prob);
-            prevHighRiskIds.current.add(p.id);
-          }
         });
         setPredictions(normalized);
         if (normalized.length > 0) setIsPipelineActive(true);
       }
 
       if (alertsRes.status === 'fulfilled') {
-        const rawAlerts = alertsRes.value?.alerts || [];
-        setAlerts(rawAlerts.length > 0 ? rawAlerts : MOCK_ALERTS);
-      } else {
-        setAlerts(MOCK_ALERTS);
+        setAlerts(alertsRes.value?.alerts || []);
       }
 
       if (driftRes.status === 'fulfilled' && driftRes.value) {
         setDriftStatus(driftRes.value);
-      } else {
-        setDriftStatus(MOCK_DRIFT_STATUS);
       }
 
       if (eventsRes.status === 'fulfilled') {
-        const rawEvts = eventsRes.value?.events || [];
-        setRawEvents(rawEvts.length > 0 ? rawEvts : MOCK_EVENTS);
-      } else {
-        setRawEvents(MOCK_EVENTS);
+        setRawEvents(eventsRes.value?.events || []);
+      }
+
+      if (farmsRes.status === 'fulfilled') {
+        setAdminFarms(farmsRes.value?.farms || []);
       }
 
       if (healthRes.status === 'fulfilled' && healthRes.value) {
         setSystemHealth(healthRes.value);
-      } else {
-        setSystemHealth(MOCK_SYSTEM_HEALTH);
       }
 
-      const m = (metricsRes.status === 'fulfilled' && metricsRes.value) ? metricsRes.value : MOCK_METRICS;
-      setMetrics(m);
-      setMetricsHistory(prev => {
-        const entry = {
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-          accuracy: m.model_accuracy ? m.model_accuracy * 100 : 95.5,
-          drift: m.drift_score ? m.drift_score * 100 : 2.5,
-          latency: m.api_latency_ms || 25,
-          cpu: m.cpu_usage || 35,
-          memory: m.memory_usage || 45,
-          events: m.events_per_second || 18,
-          lag: m.consumer_lag || 0,
-        };
-        const updated = [...prev, entry];
-        return updated.length > 20 ? updated.slice(-20) : updated;
-      });
+      if (metricsRes.status === 'fulfilled' && metricsRes.value) {
+        const m = metricsRes.value;
+        setMetrics(m);
+        setMetricsHistory(prev => {
+          const entry = {
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            accuracy: m.model_accuracy ? m.model_accuracy * 100 : 96.0,
+            drift: m.drift_score ? m.drift_score * 100 : 0.0,
+            latency: m.api_latency_ms || 15,
+            throughput: m.events_per_second || 0,
+          };
+          const next = [...prev, entry];
+          return next.length > 20 ? next.slice(next.length - 20) : next;
+        });
+      }
 
-      setError(null);
       setLastRefreshed(new Date());
+      setError(null);
     } catch (err) {
-      setError('Connection error — displaying cached data.');
+      console.warn('Dashboard fetch error:', err);
+      setError('Unable to reach production backend services.');
     } finally {
       if (isInitial) setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchAll(true);
-  }, [fetchAll]);
+  const triggerObservation = async (farmId = 'FARM_MH_PUNE_01') => {
+    try {
+      await DashboardService.triggerRealSensorObservation(farmId);
+      await fetchAll();
+    } catch (err) {
+      console.error('Trigger sensor observation notice:', err);
+    }
+  };
 
   useEffect(() => {
+    fetchAll(true);
     const interval = setInterval(() => fetchAll(false), REFRESH_INTERVAL);
     return () => clearInterval(interval);
   }, [fetchAll, REFRESH_INTERVAL]);
 
-  // Reset pipeline pulse after 2s
-  useEffect(() => {
-    if (isPipelineActive) {
-      const t = setTimeout(() => setIsPipelineActive(false), 2000);
-      return () => clearTimeout(t);
-    }
-  }, [isPipelineActive]);
-
-  const totalProducts = predictions.length;
-  const highRiskCount = predictions.filter(p => p.prediction_prob >= 0.7).length;
-  const mediumRiskCount = predictions.filter(p => p.prediction_prob >= 0.4 && p.prediction_prob < 0.7).length;
-  const lowRiskCount = predictions.filter(p => p.prediction_prob < 0.4).length;
-  const todayCount = predictions.filter(p => {
-    if (!p.timestamp) return false;
-    const d = new Date(p.timestamp);
-    const now = new Date();
-    return d.getDate() === now.getDate() && d.getMonth() === now.getMonth();
-  }).length;
-  const weekAlerts = alerts.filter(a => {
-    if (!a.sent_at) return false;
-    return (Date.now() - new Date(a.sent_at).getTime()) < 7 * 24 * 3600 * 1000;
-  }).length;
-
   return (
     <DashboardContext.Provider value={{
-      predictions, alerts, driftStatus, rawEvents, systemHealth, metrics,
-      metricsHistory, loading, error, lastRefreshed, isPipelineActive,
+      predictions,
+      alerts,
+      driftStatus,
+      rawEvents,
+      adminFarms,
+      selectedFarmId,
+      setSelectedFarmId,
+      systemHealth,
+      metrics,
+      metricsHistory,
+      loading,
+      error,
+      lastRefreshed,
+      isPipelineActive,
+      refetch: () => fetchAll(true),
       refreshData: () => fetchAll(true),
-      stats: { totalProducts, highRiskCount, mediumRiskCount, lowRiskCount, todayCount, weekAlerts }
+      triggerObservation,
     }}>
       {children}
     </DashboardContext.Provider>

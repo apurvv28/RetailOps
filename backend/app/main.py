@@ -6,7 +6,7 @@ import logging
 import sqlite3
 import psutil
 from datetime import datetime, timedelta
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import pandas as pd
 import numpy as np
 from fastapi import FastAPI, HTTPException, Depends, Header, Query, Request, status
@@ -123,7 +123,8 @@ Integrated with CockroachDB / SQLite, BetterAuth Google OAuth, MLflow Registry &
 """
 )
 
-_allowed_origins_raw = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000")
+_default_origins = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000,http://127.0.0.1:8000"
+_allowed_origins_raw = os.getenv("ALLOWED_ORIGINS", _default_origins)
 ALLOWED_ORIGINS = [o.strip() for o in _allowed_origins_raw.split(",") if o.strip()]
 
 app.add_middleware(
@@ -180,21 +181,58 @@ def get_last_telemetry_seconds_ago() -> tuple:
     return 9999.0, False
 
 
-def check_drift_and_auto_retrain():
+_cached_drift_result = None
+_cached_drift_time = 0.0
+
+def get_cached_drift_detection(limit: int = 300) -> dict:
+    global _cached_drift_result, _cached_drift_time
+    now = time.time()
+    if _cached_drift_result is not None and (now - _cached_drift_time) < 30.0:
+        return _cached_drift_result
     try:
         from backend.monitoring.drift_detector import run_drift_detection
+        res = run_drift_detection(simulate_drift=False, sample_limit=limit)
+        _cached_drift_result = res
+        _cached_drift_time = now
+        return res
+    except Exception as e:
+        logger.warning(f"Error in cached drift detection: {e}")
+        return {
+            "drift_detected": False,
+            "overall_drift_score": 0.04,
+            "features_monitored": 8,
+            "drifted_features_count": 0,
+            "feature_drift_details": {},
+            "model_drifts": []
+        }
+
+def check_drift_and_auto_retrain():
+    try:
         from backend.training.aws_retrain_dispatcher import dispatch_retraining_job
-        drift_res = run_drift_detection(simulate_drift=False, sample_limit=300)
+        drift_res = get_cached_drift_detection(limit=300)
+        data_drift = bool(drift_res.get("drift_detected", False))
+        model_drift = bool(drift_res.get("model_drift_detected", False))
         drifted_cols = int(drift_res.get("drifted_features_count", 0))
         psi_score = float(drift_res.get("overall_drift_score", 0.0))
+        model_psi = float(drift_res.get("overall_model_psi", 0.0))
 
-        if drifted_cols >= 3 or psi_score >= 0.25:
+        if (drifted_cols >= 3 or psi_score >= 0.25) or (model_drift and model_psi >= 0.25):
             import uuid
             job_id = f"auto_drift_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
-            logger.info(f"Drift threshold breached ({drifted_cols} columns drifted, PSI={psi_score:.4f}). Triggering auto-retraining job {job_id}...")
-            dispatch_retraining_job(job_id=job_id, trigger_source=f"AUTO_DRIFT_WATCHER(psi={psi_score:.2f})")
+            logger.info(f"Drift threshold breached (Data Drift={data_drift}, Model Drift={model_drift}, Data PSI={psi_score:.4f}, Model PSI={model_psi:.4f}). Triggering auto-retraining job {job_id}...")
+            dispatch_retraining_job(job_id=job_id, trigger_source=f"AUTO_DRIFT_WATCHER(data_psi={psi_score:.2f},model_psi={model_psi:.2f})")
     except Exception as e:
         logger.warning(f"Auto-retrain drift watcher notice: {e}")
+
+def trigger_weekly_sagemaker_retrain():
+    try:
+        import uuid
+        from backend.training.aws_retrain_dispatcher import dispatch_retraining_job
+        job_id = f"weekly_sun6am_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        logger.info(f"Triggering scheduled weekly Sunday 06:00 AM SageMaker model retraining: {job_id}...")
+        dispatch_retraining_job(job_id=job_id, trigger_source="CRON_WEEKLY_SUNDAY_06AM")
+    except Exception as e:
+        logger.error(f"Weekly scheduled retraining job notice: {e}")
 
 @app.on_event("startup")
 def startup():
@@ -210,10 +248,18 @@ def startup():
 
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
         scheduler = BackgroundScheduler(daemon=True)
         scheduler.add_job(check_drift_and_auto_retrain, 'interval', minutes=15)
+        # Weekly SageMaker Retraining Cron: Every Sunday at 6:00 AM (0 6 * * 0)
+        scheduler.add_job(
+            trigger_weekly_sagemaker_retrain,
+            CronTrigger(day_of_week='sun', hour=6, minute=0),
+            id="weekly_sagemaker_retrain_cron",
+            replace_existing=True
+        )
         scheduler.start()
-        logger.info("APScheduler drift watcher active — checking drift every 15 minutes.")
+        logger.info("APScheduler: Registered drift watcher (15m) and weekly Sunday 06:00 AM SageMaker retraining job (Cron: 0 6 * * 0).")
     except Exception as sched_err:
         logger.warning(f"Background scheduler startup notice: {sched_err}")
 
@@ -234,8 +280,9 @@ def start_background_streaming_services():
     def producer_worker():
         try:
             from backend.ingestion.producer import run_producer
-            logger.info("Auto-starting Telemetry Producer background thread...")
-            run_producer(continuous=True, delay=1.0)
+            telemetry_interval = float(os.getenv("TELEMETRY_INTERVAL", 120.0))
+            logger.info(f"Auto-starting Telemetry Producer background thread (every {telemetry_interval}s / 2 minutes)...")
+            run_producer(continuous=True, delay=telemetry_interval)
         except Exception as e:
             logger.warning(f"Producer background thread notice: {e}")
 
@@ -533,46 +580,249 @@ def get_retraining_history(current_user: dict = Depends(require_admin)):
             })
     return {"count": len(jobs), "jobs": jobs}
 
+@app.get("/api/mlops/retrain/schedule")
+def get_retraining_schedule():
+    """Returns the weekly automated SageMaker retraining cron schedule configuration."""
+    from datetime import datetime, timedelta
+    now = datetime.now()
+    days_ahead = 6 - now.weekday()
+    if days_ahead <= 0 or (days_ahead == 0 and now.hour >= 6):
+        days_ahead += 7
+    next_sun = (now + timedelta(days=days_ahead)).replace(hour=6, minute=0, second=0, microsecond=0)
+
+    return {
+        "schedule": "Every week on Sunday morning at 06:00 AM (0 6 * * 0)",
+        "cron_expression": "0 6 * * 0",
+        "frequency_days": 7,
+        "target_cloud": "AWS SageMaker (ml.m5.large Cloud Container)",
+        "s3_telemetry_dataset": "s3://krishiloop-ml-artifacts/telemetry/raw_telemetry_master.csv",
+        "aws_profile": os.getenv("AWS_PROFILE", "krishiloop"),
+        "aws_region": os.getenv("AWS_DEFAULT_REGION", "ap-south-1"),
+        "s3_bucket": os.getenv("AWS_S3_BUCKET", "krishiloop-ml-artifacts"),
+        "next_scheduled_run": next_sun.strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+@app.post("/api/mlops/telemetry/sync-s3")
+def sync_telemetry_s3_endpoint(current_user: dict = Depends(require_admin)):
+    """Admin-only: Forces a live synchronization of all telemetry data to the AWS S3 bucket."""
+    from backend.telemetry.s3_archiver import sync_telemetry_to_s3
+    res = sync_telemetry_to_s3()
+    return res
+
+# ==================== ADMIN MULTI-FARM & REAL SENSOR INGESTION ENDPOINTS ====================
+
+@app.get("/api/admin/farms")
+def get_admin_farms(current_user: dict = Depends(require_admin)):
+    """Admin-only: Returns all farms managed by this admin with latest real sensor telemetry."""
+    admin_id = current_user["id"]
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT f.farm_id, f.farm_name, f.district, f.region, f.gps_latitude, f.gps_longitude,
+               f.acreage, f.soil_type, f.current_crop, f.sensor_types, f.status, f.farmer_id,
+               u.name as farmer_name, u.email as farmer_email
+        FROM farms f
+        LEFT JOIN users u ON f.farmer_id = u.id
+        WHERE f.admin_id = ? OR f.admin_id IS NULL
+        ORDER BY f.farm_id ASC
+    """, (admin_id,))
+    farm_rows = cursor.fetchall()
+
+    farms_list = []
+    now = datetime.now()
+    for row in farm_rows:
+        farm = dict(row)
+        cursor.execute("""
+            SELECT nitrogen, phosphorus, potassium, temperature, humidity, ph, soil_moisture, rainfall, timestamp
+            FROM raw_telemetry
+            WHERE farm_id = ? OR field_id = ?
+            ORDER BY id DESC LIMIT 1
+        """, (farm["farm_id"], farm["farm_id"]))
+        telemetry_row = cursor.fetchone()
+
+        cursor.execute("SELECT last_ping FROM sensor_heartbeat WHERE field_id = ?", (farm["farm_id"],))
+        hb = cursor.fetchone()
+        is_online = True
+        sec_ago = 15.0
+        if hb and hb[0]:
+            try:
+                last_dt = datetime.strptime(str(hb[0]), "%Y-%m-%d %H:%M:%S")
+                sec_ago = (now - last_dt).total_seconds()
+                is_online = sec_ago < 300
+            except Exception:
+                pass
+
+        farm["latest_telemetry"] = dict(telemetry_row) if telemetry_row else None
+        farm["is_sensor_online"] = is_online
+        farm["seconds_ago"] = round(sec_ago, 1)
+        try:
+            farm["sensor_types"] = json.loads(farm["sensor_types"]) if isinstance(farm["sensor_types"], str) else farm["sensor_types"]
+        except Exception:
+            farm["sensor_types"] = ["soil_moisture_sensor", "npk_sensor", "weather_station"]
+        farms_list.append(farm)
+
+    conn.close()
+    return {"count": len(farms_list), "farms": farms_list}
+
+@app.get("/api/admin/farms/{farm_id}/telemetry")
+def get_admin_farm_telemetry(farm_id: str, limit: int = 50, current_user: dict = Depends(require_admin)):
+    """Admin-only: Returns real telemetry stream for a specific supervised farm."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, farm_id, field_id, nitrogen, phosphorus, potassium, temperature, humidity, ph, soil_moisture, rainfall, crop_type, timestamp
+        FROM raw_telemetry
+        WHERE farm_id = ? OR field_id = ?
+        ORDER BY id DESC LIMIT ?
+    """, (farm_id, farm_id, limit))
+    rows = cursor.fetchall()
+    conn.close()
+    return {"farm_id": farm_id, "count": len(rows), "telemetry": [dict(r) for r in rows]}
+
 @app.post("/api/admin/trigger-event")
-def trigger_synthetic_event(current_user: dict = Depends(require_admin)):
+def trigger_real_sensor_observation(farm_id: str = Query("FARM_MH_PUNE_01"), current_user: dict = Depends(require_admin)):
+    """Admin-only: Ingests an authentic sensor observation from official Maharashtra/Agri datasets for testing."""
+    from backend.ingestion.producer import SM_MAHARASHTRA_CSV, CROP_REAL_CSV
     from backend.ingestion.consumer import save_event_to_db, run_multi_modal_inferences
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT farm_id, farm_name, district, current_crop, soil_type FROM farms WHERE farm_id = ?", (farm_id,))
+    farm_row = cursor.fetchone()
+    conn.close()
+    
+    district = farm_row["district"] if farm_row else "PUNE"
+    crop = farm_row["current_crop"] if farm_row else "rice"
+    soil_type = farm_row["soil_type"] if farm_row else "Loamy"
+    
+    sm_df = pd.read_csv(SM_MAHARASHTRA_CSV)
+    crop_df = pd.read_csv(CROP_REAL_CSV)
+    
+    dist_sm = sm_df[sm_df["DistrictName"].str.upper() == district.upper()]["Aggregate Soilmoisture Percentage (at 15cm)"].dropna()
+    sm_val = float(dist_sm.sample(1).iloc[0]) if not dist_sm.empty else 25.0
+    
+    crop_sub = crop_df[crop_df["label"].str.lower() == crop.lower()]
+    crop_row = crop_sub.sample(1).iloc[0] if not crop_sub.empty else crop_df.sample(1).iloc[0]
+    
     event_payload = {
-        "field_id": "FIELD_MH_01",
-        "nitrogen": 45.0,
-        "phosphorus": 35.0,
-        "potassium": 38.0,
-        "temperature": 32.5,
-        "humidity": 42.0,
-        "ph": 6.8,
-        "soil_moisture": 16.5,
-        "rainfall": 5.0,
-        "soil_type": "Loamy",
-        "crop_type": "rice"
+        "farm_id": farm_id,
+        "field_id": farm_id,
+        "nitrogen": round(float(crop_row.get("N", 50.0)), 1),
+        "phosphorus": round(float(crop_row.get("P", 40.0)), 1),
+        "potassium": round(float(crop_row.get("K", 40.0)), 1),
+        "temperature": round(float(crop_row.get("temperature", 25.0)), 1),
+        "humidity": round(float(crop_row.get("humidity", 60.0)), 1),
+        "ph": round(float(crop_row.get("ph", 6.5)), 2),
+        "soil_moisture": round(sm_val, 1),
+        "rainfall": round(float(crop_row.get("rainfall", 0.0)), 1),
+        "soil_type": soil_type,
+        "crop_type": crop,
+        "timestamp": datetime.now().isoformat()
     }
     save_event_to_db(event_payload)
     run_multi_modal_inferences(event_payload)
-    return {"status": "success", "event": event_payload}
+    return {"status": "success", "source": "official_nrsc_data_gov_in", "event": event_payload}
 
+# ==================== FARMER ISOLATED FARM & SENSOR ENDPOINTS ====================
 
+@app.get("/api/farmer/farm")
+def get_farmer_farm_details(current_user: dict = Depends(require_farmer)):
+    """Farmer-only: Returns the farmer's isolated farm land and latest real sensor telemetry."""
+    user_id = current_user["id"]
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT farm_id, farm_name, district, region, gps_latitude, gps_longitude,
+               acreage, soil_type, current_crop, sensor_types, status
+        FROM farms
+        WHERE farmer_id = ?
+        LIMIT 1
+    """, (user_id,))
+    row = cursor.fetchone()
+    if not row:
+        cursor.execute("SELECT farm_id, farm_name, district, region, gps_latitude, gps_longitude, acreage, soil_type, current_crop, sensor_types, status FROM farms WHERE farm_id = 'FARM_MH_PUNE_01'")
+        row = cursor.fetchone()
+
+    farm = dict(row) if row else {
+        "farm_id": "FARM_MH_PUNE_01",
+        "farm_name": "Kisan Green Valley Farm",
+        "district": "PUNE",
+        "region": "Maharashtra",
+        "gps_latitude": 18.5204,
+        "gps_longitude": 73.8567,
+        "acreage": 12.5,
+        "soil_type": "Clayey Loam",
+        "current_crop": "rice",
+        "sensor_types": ["soil_moisture_sensor", "npk_sensor", "weather_station"],
+        "status": "active"
+    }
+
+    try:
+        farm["sensor_types"] = json.loads(farm["sensor_types"]) if isinstance(farm["sensor_types"], str) else farm["sensor_types"]
+    except Exception:
+        farm["sensor_types"] = ["soil_moisture_sensor", "npk_sensor", "weather_station"]
+
+    cursor.execute("""
+        SELECT nitrogen, phosphorus, potassium, temperature, humidity, ph, soil_moisture, rainfall, timestamp
+        FROM raw_telemetry
+        WHERE farm_id = ? OR field_id = ?
+        ORDER BY id DESC LIMIT 1
+    """, (farm["farm_id"], farm["farm_id"]))
+    tel = cursor.fetchone()
+    farm["latest_telemetry"] = dict(tel) if tel else None
+    conn.close()
+    return farm
+
+@app.get("/api/farmer/telemetry/live")
+def get_farmer_live_telemetry(limit: int = 20, current_user: dict = Depends(require_farmer)):
+    """Farmer-only: Returns real sensor telemetry specifically for the farmer's land."""
+    user_id = current_user["id"]
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT farm_id FROM farms WHERE farmer_id = ? LIMIT 1", (user_id,))
+    frow = cursor.fetchone()
+    farm_id = frow[0] if frow else "FARM_MH_PUNE_01"
+
+    cursor.execute("""
+        SELECT id, farm_id, field_id, nitrogen, phosphorus, potassium, temperature, humidity, ph, soil_moisture, rainfall, crop_type, timestamp
+        FROM raw_telemetry
+        WHERE farm_id = ? OR field_id = ?
+        ORDER BY id DESC LIMIT ?
+    """, (farm_id, farm_id, limit))
+    rows = cursor.fetchall()
+    conn.close()
+    return {"farm_id": farm_id, "count": len(rows), "events": [dict(r) for r in rows]}
 
 @app.get("/api/farmer/stream")
 async def farmer_telemetry_sse_stream(token: str = Query(...)):
+    """SSE stream strictly filtered to the authenticated farmer's designated land."""
     from backend.app.auth import decode_token
     payload = decode_token(token)
     if not payload:
         raise HTTPException(status_code=401, detail="Invalid token")
 
+    user_id = payload.get("id")
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT farm_id FROM farms WHERE farmer_id = ? LIMIT 1", (user_id,))
+    frow = cursor.fetchone()
+    farmer_farm_id = frow[0] if frow else "FARM_MH_PUNE_01"
+    conn.close()
+
     async def event_generator():
         import asyncio
         while True:
             try:
-                conn = get_db_connection()
-                cursor = conn.cursor()
-                cursor.execute("SELECT id, field_id, nitrogen, phosphorus, potassium, temperature, humidity, ph, soil_moisture, rainfall, crop_type, timestamp FROM raw_telemetry ORDER BY id DESC LIMIT 5")
-                rows = cursor.fetchall()
-                conn.close()
+                c = get_db_connection()
+                cur = c.cursor()
+                cur.execute(
+                    "SELECT id, farm_id, field_id, nitrogen, phosphorus, potassium, temperature, humidity, ph, soil_moisture, rainfall, crop_type, timestamp FROM raw_telemetry WHERE farm_id = ? OR field_id = ? ORDER BY id DESC LIMIT 5",
+                    (farmer_farm_id, farmer_farm_id)
+                )
+                rows = cur.fetchall()
+                c.close()
                 events = [dict(r) for r in rows] if rows else []
-                data = json.dumps({"events": events, "timestamp": datetime.now().isoformat()})
+                data = json.dumps({"farm_id": farmer_farm_id, "events": events, "timestamp": datetime.now().isoformat()})
                 yield f"data: {data}\n\n"
             except Exception as e:
                 logger.warning(f"SSE stream error: {e}")
@@ -624,39 +874,45 @@ def mark_farmer_alert_read(alert_id: int, current_user: dict = Depends(require_f
 
 @app.get("/api/farmer/sensor-status")
 def get_farmer_sensor_status(current_user: dict = Depends(require_farmer)):
+    """Returns heartbeat and online status specifically for the farmer's farm sensors."""
+    user_id = current_user["id"]
     conn = get_db_connection()
-    fields_status = []
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT field_id, sensor_type, last_ping FROM sensor_heartbeat")
-        rows = cursor.fetchall()
-        conn.close()
-        
-        now = datetime.now()
+    cursor = conn.cursor()
+    cursor.execute("SELECT farm_id, farm_name, district, sensor_types FROM farms WHERE farmer_id = ? LIMIT 1", (user_id,))
+    frow = cursor.fetchone()
+    farm_id = frow["farm_id"] if frow else "FARM_MH_PUNE_01"
+    farm_name = frow["farm_name"] if frow else "Kisan Green Valley Farm"
+
+    cursor.execute("SELECT field_id, sensor_type, last_ping FROM sensor_heartbeat WHERE field_id = ? OR field_id = 'FARM_MH_PUNE_01'", (farm_id,))
+    rows = cursor.fetchall()
+    conn.close()
+
+    now = datetime.now()
+    sensors_status = []
+    if rows:
         for r in rows:
             try:
                 last_ts = datetime.strptime(str(r["last_ping"]), "%Y-%m-%d %H:%M:%S")
                 sec_ago = (now - last_ts).total_seconds()
             except Exception:
-                sec_ago = 15.0
-            status = "ONLINE" if sec_ago < 120 else "OFFLINE"
-            fields_status.append({
+                sec_ago = 12.0
+            status = "ONLINE" if sec_ago < 300 else "OFFLINE"
+            sensors_status.append({
+                "farm_id": farm_id,
+                "farm_name": farm_name,
                 "field_id": r["field_id"],
                 "sensor_type": r["sensor_type"],
                 "last_ping": str(r["last_ping"]),
                 "seconds_ago": round(sec_ago, 1),
                 "status": status
             })
-    except Exception as e:
-        logger.warning(f"Sensor status query notice: {e}")
-
-    if not fields_status:
-        fields_status = [
-            {"field_id": "FIELD_MH_01", "sensor_type": "Multi-Sensor Pod (NPK, Temp, Moisture)", "status": "ONLINE", "seconds_ago": 12.5},
-            {"field_id": "FIELD_MH_02", "sensor_type": "Soil Moisture Probe", "status": "ONLINE", "seconds_ago": 24.0}
+    else:
+        sensors_status = [
+            {"farm_id": farm_id, "farm_name": farm_name, "field_id": farm_id, "sensor_type": "Multi-Sensor Pod (NPK, Temp, Moisture)", "status": "ONLINE", "seconds_ago": 8.0, "last_ping": now.strftime("%Y-%m-%d %H:%M:%S")},
+            {"farm_id": farm_id, "farm_name": farm_name, "field_id": f"{farm_id}_WEATHER", "sensor_type": "Micro-Weather Station", "status": "ONLINE", "seconds_ago": 15.0, "last_ping": now.strftime("%Y-%m-%d %H:%M:%S")}
         ]
 
-    return {"count": len(fields_status), "sensors": fields_status}
+    return {"farm_id": farm_id, "count": len(sensors_status), "sensors": sensors_status}
 
 # ==================== FARMER PROFILE & ISOLATED DASHBOARD ENDPOINTS ====================
 
@@ -1282,46 +1538,58 @@ def get_drift_status():
     last_checked = datetime.fromtimestamp(os.path.getmtime(report_path)).strftime("%Y-%m-%d %H:%M:%S") if report_exists else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     try:
-        from backend.monitoring.drift_detector import run_drift_detection
-        drift_res = run_drift_detection(simulate_drift=False, sample_limit=500)
+        drift_res = get_cached_drift_detection(limit=500)
     except Exception as e:
         logger.warning(f"Error running statistical drift detection: {e}")
         drift_res = {
             "drift_detected": False,
             "overall_drift_score": 0.04,
-            "features_monitored": 7,
+            "features_monitored": 8,
             "drifted_features_count": 0,
-            "feature_drift_details": {}
+            "feature_drift_details": {},
+            "model_drifts": []
         }
 
     dataset_drift = bool(drift_res.get("drift_detected", False))
     drifted_cols = int(drift_res.get("drifted_features_count", 0))
-    total_cols = int(drift_res.get("features_monitored", 7))
-    details = drift_res.get("feature_drift_details", {})
+    total_cols = int(drift_res.get("features_monitored", 8))
 
-    model_mapping = [
-        ("Irrigation Risk Predictor", "irrigation", ["temperature", "humidity", "soil_moisture", "rainfall"]),
-        ("Crop Recommender", "crop", ["N", "P", "K", "temperature", "humidity", "ph", "rainfall"]),
-        ("Fertilizer Advisory", "fertilizer", ["N", "P", "K", "temperature", "humidity"]),
-        ("Yield Predictor", "yield", ["N", "P", "K", "temperature", "humidity", "ph", "rainfall"])
-    ]
-
+    model_drifts_data = drift_res.get("model_drifts", [])
     model_drifts = []
-    for model_name, model_key, monitored_feats in model_mapping:
-        drifted_feats = [f for f in monitored_feats if details.get(f, {}).get("drift_detected", False)]
-        psis = [details[f]["psi"] for f in monitored_feats if f in details]
-        avg_psi = round(float(np.mean(psis)), 3) if psis else 0.03
-        has_drift = len(drifted_feats) > 0
+    if model_drifts_data:
+        for md in model_drifts_data:
+            model_drifts.append(ModelDriftDetail(
+                model_name=md["model_name"],
+                model_key=md["model_key"],
+                drift_detected=md["drift_detected"],
+                drifted_features=md["drifted_features"],
+                total_features=md["total_features"],
+                psi_score=md["psi_score"],
+                status=md["status"]
+            ))
+    else:
+        model_mapping = [
+            ("Irrigation Risk Predictor", "irrigation", ["temperature", "humidity", "soil_moisture", "rainfall"]),
+            ("Crop Recommender", "crop", ["nitrogen", "phosphorus", "potassium", "temperature", "humidity", "ph", "rainfall"]),
+            ("Fertilizer Advisory", "fertilizer", ["nitrogen", "phosphorus", "potassium", "temperature", "humidity"]),
+            ("Yield Predictor", "yield", ["nitrogen", "phosphorus", "potassium", "temperature", "humidity", "ph", "rainfall"])
+        ]
+        details = drift_res.get("feature_drift_details", {})
+        for model_name, model_key, monitored_feats in model_mapping:
+            drifted_feats = [f for f in monitored_feats if details.get(f, {}).get("drift_detected", False)]
+            psis = [details[f]["psi"] for f in monitored_feats if f in details]
+            avg_psi = round(float(np.mean(psis)), 3) if psis else 0.03
+            has_drift = len(drifted_feats) > 0
 
-        model_drifts.append(ModelDriftDetail(
-            model_name=model_name,
-            model_key=model_key,
-            drift_detected=has_drift,
-            drifted_features=drifted_feats,
-            total_features=len(monitored_feats),
-            psi_score=avg_psi,
-            status="CRITICAL_DRIFT" if len(drifted_feats) >= 2 else ("MODERATE_DRIFT" if len(drifted_feats) == 1 else "STABLE")
-        ))
+            model_drifts.append(ModelDriftDetail(
+                model_name=model_name,
+                model_key=model_key,
+                drift_detected=has_drift,
+                drifted_features=drifted_feats,
+                total_features=len(monitored_feats),
+                psi_score=avg_psi,
+                status="CRITICAL_DRIFT" if len(drifted_feats) >= 2 else ("MODERATE_DRIFT" if len(drifted_feats) == 1 else "STABLE")
+            ))
 
     share_drifted = round(drifted_cols / float(total_cols), 3) if total_cols > 0 else 0.0
 
@@ -1334,6 +1602,19 @@ def get_drift_status():
         report_available=report_exists,
         model_drifts=model_drifts
     )
+
+@app.get("/api/mlops/drift")
+def get_comprehensive_drift_report(sample_limit: int = Query(500, ge=20, le=2000), current_user: dict = Depends(get_current_user)):
+    """Returns comprehensive real-time data drift and model prediction drift across all 4 models."""
+    from backend.monitoring.drift_detector import run_comprehensive_drift
+    return run_comprehensive_drift(sample_limit=sample_limit, save_report=True, log_to_db=False)
+
+@app.post("/api/mlops/drift/run")
+def trigger_realtime_drift_analysis(sample_limit: int = Query(500, ge=20, le=2000), current_user: dict = Depends(require_admin)):
+    """Triggers an on-demand statistical drift detection job across all 4 models and saves report."""
+    from backend.monitoring.drift_detector import run_comprehensive_drift
+    result = run_comprehensive_drift(sample_limit=sample_limit, save_report=True, log_to_db=True)
+    return {"status": "success", "result": result}
 
 @app.get("/dashboard/alerts", response_model=AlertsHistoryResponse, dependencies=[Depends(verify_api_key)])
 def get_alerts_history(limit: int = Query(50, ge=1, le=500)):
@@ -1471,8 +1752,7 @@ def get_metrics():
 
     drift_score = 0.04
     try:
-        from backend.monitoring.drift_detector import run_drift_detection
-        drift_res = run_drift_detection(simulate_drift=False, sample_limit=300)
+        drift_res = get_cached_drift_detection(limit=300)
         drift_score = float(drift_res.get("overall_drift_score", 0.04))
     except Exception as e:
         logger.warning(f"Metrics drift query notice: {e}")
@@ -1489,4 +1769,39 @@ def get_metrics():
         "model_accuracy": 0.942,
         "drift_score": drift_score
     }
+
+
+# ==================== MULTI-LINGUAL REAL-TIME AI ASSISTANT ====================
+from pydantic import BaseModel, Field
+
+class AssistantChatRequest(BaseModel):
+    message: str = Field(..., description="User question in any language (Hindi, Marathi, English, Gujarati, Tamil, Telugu, etc.)")
+    language: Optional[str] = Field("en", description="User preferred language code (en, hi, mr, gu, ta, te)")
+    history: Optional[List[Dict[str, str]]] = Field(default=[], description="Recent conversation turns")
+
+@app.post("/api/assistant/chat")
+def assistant_chat(request: AssistantChatRequest):
+    """
+    Real-time Multi-Lingual Agronomic AI Assistant powered by NVIDIA NIM z-ai/glm-5.3-flash.
+    Equipped with real-time field sensors, soil moisture telemetry, and automated ML model outputs.
+    """
+    try:
+        try:
+            from backend.app.assistant_service import chat_with_krishimitra
+        except ImportError:
+            from app.assistant_service import chat_with_krishimitra
+
+        result = chat_with_krishimitra(
+            user_message=request.message,
+            conversation_history=request.history,
+            language_hint=request.language or "en"
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Error in assistant chat endpoint: {e}")
+        return {
+            "reply": "नमस्ते! कृषि मित्र सेवा में थोड़ी रुकावट आई है। कृपया पुनः प्रयास करें। (Assistant temporarily unavailable).",
+            "model": "error-handler",
+            "timestamp": datetime.now().isoformat()
+        }
 

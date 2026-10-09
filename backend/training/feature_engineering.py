@@ -16,11 +16,13 @@ DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 MAHARASHTRA_SM_CSV = os.path.join(DATA_DIR, "sm_Maharashtra_2018.csv")
 FERTILIZER_REAL_CSV = os.path.join(DATA_DIR, "fertilizer_prediction_real.csv")
 CROP_REAL_CSV = os.path.join(DATA_DIR, "crop_recommendation_real.csv")
+CROP_YIELD_REAL_CSV = os.path.join(DATA_DIR, "crop_yield_real.csv")
 CROPNET_YIELD_CSV = os.path.join(DATA_DIR, "cropnet_yield.csv")
 
 PROCESSED_IRRIGATION_CSV = os.path.join(DATA_DIR, "processed_irrigation_maharashtra.csv")
 PROCESSED_CROP_CSV = os.path.join(DATA_DIR, "processed_crop_recommendation.csv")
 PROCESSED_FERTILIZER_CSV = os.path.join(DATA_DIR, "processed_fertilizer_prediction.csv")
+PROCESSED_CROP_YIELD_CSV = os.path.join(DATA_DIR, "processed_crop_yield.csv")
 PROCESSED_YIELD_CSV = os.path.join(DATA_DIR, "processed_cropnet_yield.csv")
 
 def process_maharashtra_irrigation_features():
@@ -96,10 +98,23 @@ def process_fertilizer_recommendation_features():
     df.to_csv(PROCESSED_FERTILIZER_CSV, index=False)
     print(f"   Saved processed fertilizer dataset to {PROCESSED_FERTILIZER_CSV} ({len(df)} rows)")
 
+def process_crop_yield_features():
+    print("4. Engineering features for Real Crop Yield Prediction (Empirical Agricultural Records)...")
+    if not os.path.exists(CROP_YIELD_REAL_CSV):
+        raise FileNotFoundError(f"Missing {CROP_YIELD_REAL_CSV}")
+
+    df = pd.read_csv(CROP_YIELD_REAL_CSV)
+    # Agronomic soil moisture estimation derived from empirical humidity and rainfall
+    df["soil_moisture"] = (df["humidity"] * 0.35 + (df["rainfall"] / 10.0) * 0.65).clip(10.0, 95.0).round(2)
+    # Ensure yield target is rounded and positive
+    df["yield"] = df["yield"].clip(0.1, 150.0).round(2)
+    df.to_csv(PROCESSED_CROP_YIELD_CSV, index=False)
+    print(f"   Saved processed real yield dataset to {PROCESSED_CROP_YIELD_CSV} ({len(df)} rows)")
+
 def process_cropnet_yield_features():
-    print("4. Engineering features for CropNet Yield Prediction...")
+    print("5. Engineering features for CropNet Yield Prediction (Legacy)...")
     if not os.path.exists(CROPNET_YIELD_CSV):
-        raise FileNotFoundError(f"Missing {CROPNET_YIELD_CSV}")
+        return
 
     df = pd.read_csv(CROPNET_YIELD_CSV)
     df["production_bu"] = df["production_bu"].fillna(0)
@@ -114,6 +129,7 @@ def run_feature_engineering():
     process_maharashtra_irrigation_features()
     process_crop_recommendation_features()
     process_fertilizer_recommendation_features()
+    process_crop_yield_features()
     process_cropnet_yield_features()
     print("AgriTech feature engineering complete for all 4 real datasets!")
 

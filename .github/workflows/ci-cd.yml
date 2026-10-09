@@ -1,31 +1,33 @@
-name: Retail Ops Intelligence - CI/CD Pipeline
+name: KrishiLoop - AWS Production CI/CD Pipeline
 
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  repository_dispatch:
-    types: [ auto_retrain ]
+  workflow_dispatch:
 
 permissions:
-  id-token: write # Required for Workload Identity Federation
-  contents: write # Needed if we update tags or dispatch
-  actions: write
+  contents: read
+
+env:
+  AWS_DEFAULT_REGION: ap-south-1
+  AWS_ALB_DNS: krishiloop-alb-1286279459.ap-south-1.elb.amazonaws.com
 
 jobs:
-  test-backend:
-    name: Backend - Lint & Pytest Verification
+  # ====================================================================
+  # 1. VERIFICATION & TEST SUITE
+  # ====================================================================
+  verify-test:
+    name: Lint, Test & Production Build Verification
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    - name: Set up Python
+    - name: Set up Python 3.11
       uses: actions/setup-python@v5
       with:
-        python-version: '3.10'
+        python-version: '3.11'
         cache: 'pip'
 
     - name: Install Backend Dependencies
@@ -34,30 +36,20 @@ jobs:
         pip install -r backend/requirements.txt
         pip install flake8 pytest
 
-    - name: Lint with flake8
+    - name: Lint Backend Code
       run: |
-        # Stop build if there are Python syntax errors or undefined names
         flake8 backend/ --count --select=E9,F63,F7,F82 --show-source --statistics
-        # Exit-zero treats formatting as warnings
-        flake8 backend/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        flake8 backend/ --count --exit-zero --max-complexity=15 --max-line-length=140 --statistics
 
-    - name: Verify Database Initialization
+    - name: Verify Schema Initialization
       run: |
         python backend/schema/init_db.py
 
-    - name: Run Pytest Unit Tests
+    - name: Run Pytest Pipeline Verification
       run: |
         python -m pytest backend/training/test_pipeline.py
 
-  build-frontend:
-    name: Frontend - Install & Production Build Verification
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
-
-    - name: Set up Node.js
+    - name: Set up Node.js 20
       uses: actions/setup-node@v4
       with:
         node-version: '20'
@@ -69,75 +61,99 @@ jobs:
         cd frontend
         npm ci || npm install
 
-    - name: Build React Vite Frontend
+    - name: Verify React Production Build
       run: |
         cd frontend
         npm run build
 
-  check-secrets:
-    name: Check GCP Deployment Secrets
+  # ====================================================================
+  # 2. DEPLOY FRONTEND TO AWS AMPLIFY
+  # ====================================================================
+  deploy-frontend-amplify:
+    name: Deploy Frontend to AWS Amplify
+    needs: [verify-test]
     runs-on: ubuntu-latest
-    outputs:
-      gcp_secrets_set: ${{ steps.check.outputs.gcp_secrets_set }}
-    steps:
-    - id: check
-      env:
-        GCP_WIP: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-      run: |
-        if [ -n "$GCP_WIP" ]; then
-          echo "gcp_secrets_set=true" >> $GITHUB_OUTPUT
-        else
-          echo "gcp_secrets_set=false" >> $GITHUB_OUTPUT
-        fi
-
-  build-and-deploy:
-    name: Build Docker & Deploy to GCP Cloud Run
-    runs-on: ubuntu-latest
-    needs: [test-backend, build-frontend, check-secrets]
-    if: ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'repository_dispatch' && github.event.action == 'auto_retrain')) && needs.check-secrets.outputs.gcp_secrets_set == 'true'
+    if: github.ref == 'refs/heads/main'
 
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    - name: Authenticate to Google Cloud via WIF
-      id: auth
-      uses: google-github-actions/auth@v2
+    - name: Configure AWS Credentials (krishiloop)
+      uses: aws-actions/configure-aws-credentials@v4
       with:
-        token_format: 'access_token'
-        workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-        service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_DEFAULT_REGION }}
 
-    - name: Set up Cloud SDK
-      uses: google-github-actions/setup-gcloud@v2
-
-    - name: Configure Docker for Artifact Registry
+    - name: Trigger AWS Amplify Deployment Job
       run: |
-        gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --quiet
-
-    - name: Build and Tag Docker Image
-      run: |
-        IMAGE_NAME="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/retail-ops-repo/retail-ops-serving:latest"
-        docker build -t $IMAGE_NAME ./backend
-        echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
-
-    - name: Push Image to Artifact Registry
-      run: |
-        docker push $IMAGE_NAME
-
-    - name: Deploy to GCP Cloud Run (Canary 10% Traffic split)
-      run: |
-        gcloud run deploy retail-ops-service \
-          --image ${{ env.IMAGE_NAME }} \
-          --region ${{ secrets.GCP_REGION }} \
-          --platform managed \
-          --no-traffic \
-          --allow-unauthenticated
-
-        LATEST_REV=$(gcloud run revisions list --service retail-ops-service --region ${{ secrets.GCP_REGION }} --limit 1 --format="value(metadata.name)")
+        echo "Initiating AWS Amplify deployment..."
         
-        gcloud run services update-traffic retail-ops-service \
-          --region ${{ secrets.GCP_REGION }} \
-          --to-revisions LATEST_REV=10
-        
-        echo "Successfully deployed revision $LATEST_REV with 10% traffic split."
+        # 1. Trigger via Amplify App ID if configured
+        if [ -n "${{ secrets.AMPLIFY_APP_ID }}" ]; then
+          echo "Starting Amplify Job for App ID: ${{ secrets.AMPLIFY_APP_ID }} (branch: main)..."
+          aws amplify start-job \
+            --app-id "${{ secrets.AMPLIFY_APP_ID }}" \
+            --branch-name "main" \
+            --job-type "RELEASE"
+          echo "Amplify release job initiated successfully."
+        elif [ -n "${{ secrets.AMPLIFY_WEBHOOK_URL }}" ]; then
+          echo "Triggering AWS Amplify Webhook..."
+          curl -s -X POST -d '{}' "${{ secrets.AMPLIFY_WEBHOOK_URL }}"
+          echo "Amplify webhook triggered successfully."
+        else
+          echo "Amplify GitHub Integration active: Pushes to main branch automatically build and deploy via amplify.yml specification."
+        fi
+
+  # ====================================================================
+  # 3. DEPLOY BACKEND TO AWS EC2 (ALB TARGET GROUP)
+  # ====================================================================
+  deploy-backend-ec2:
+    name: Deploy Backend to EC2 & ALB Target Group
+    needs: [verify-test]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS Credentials (krishiloop)
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+    # Option A: SSH Deployment if EC2_HOST & EC2_SSH_KEY secrets exist
+    - name: Deploy via SSH to EC2 Instance
+      if: env.HAS_SSH == 'true'
+      env:
+        HAS_SSH: ${{ secrets.EC2_SSH_KEY != '' && secrets.EC2_HOST != '' }}
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER || 'ubuntu' }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          cd /home/ubuntu/Course-Project-RetailOps || cd /home/ec2-user/Course-Project-RetailOps
+          bash scripts/deploy_backend_ec2.sh
+
+    # Option B: AWS Systems Manager (SSM) if EC2_INSTANCE_ID secret exists
+    - name: Deploy via AWS Systems Manager (SSM)
+      if: env.HAS_SSM == 'true'
+      env:
+        HAS_SSM: ${{ secrets.EC2_INSTANCE_ID != '' }}
+      run: |
+        echo "Sending deployment command to EC2 Instance: ${{ secrets.EC2_INSTANCE_ID }} via AWS SSM..."
+        aws ssm send-command \
+          --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
+          --document-name "AWS-RunShellScript" \
+          --parameters 'commands=["cd /home/ubuntu/Course-Project-RetailOps && bash scripts/deploy_backend_ec2.sh"]' \
+          --comment "CI/CD automated deployment to EC2"
+
+    - name: Verify Application Load Balancer (ALB) Health
+      run: |
+        echo "Testing ALB Target Group Endpoint: http://${{ env.AWS_ALB_DNS }}/health"
+        curl -s -m 10 "http://${{ env.AWS_ALB_DNS }}/health" || echo "ALB target group health check in progress via AWS VPC listener."

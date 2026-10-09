@@ -1,0 +1,11 @@
+# ====================================================================
+# KrishiLoop MLOps Automated Weekly Retraining Crontab
+# Target: AWS SageMaker + S3 Telemetry
+# Cadence: Every week on Sunday morning at 06:00 AM (0 6 * * 0)
+# ====================================================================
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+AWS_PROFILE=krishiloop
+AWS_DEFAULT_REGION=ap-south-1
+
+0 6 * * 0 cd /home/ubuntu/Course-Project-RetailOps && /home/ubuntu/Course-Project-RetailOps/backend/.venv/bin/python backend/training/weekly_cron_retrain.py >> /var/log/krishiloop_weekly_retrain.log 2>&1

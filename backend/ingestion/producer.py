@@ -1,33 +1,25 @@
 import os
 import sys
 import argparse
-import pandas as pd
-import numpy as np
 import sqlite3
 import time
 from datetime import datetime
-
+import pandas as pd
 
 sys.path.insert(0, os.path.dirname(__file__))
 from queue_service import QueueService
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
-CROP_CSV = os.path.join(DATA_DIR, "crop_recommendation_real.csv")
-
-FIELDS = [
-    "FIELD_MH_01", "FIELD_MH_02", "FIELD_US_01", "FIELD_US_04",
-    "FIELD_PB_01", "FIELD_KA_03", "FIELD_GJ_02", "FIELD_TN_05"
-]
-
-SOIL_TYPES = ["Loamy", "Clayey", "Sandy", "Black", "Red"]
+SM_MAHARASHTRA_CSV = os.path.join(DATA_DIR, "sm_Maharashtra_2018.csv")
+CROP_REAL_CSV = os.path.join(DATA_DIR, "crop_recommendation_real.csv")
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="AgriTech Telemetry Ingestion Event Producer")
-    parser.add_argument("--field-id", type=str, default="auto", help="Field ID or 'auto' to cycle fields")
-    parser.add_argument("--limit", type=int, default=100, help="Number of records to publish (0 for unlimited)")
-    parser.add_argument("--delay", type=float, default=0.4, help="Delay in seconds between messages")
+    parser = argparse.ArgumentParser(description="AgriTech Real-World Sensor Telemetry Ingestion Producer")
+    parser.add_argument("--farm-id", type=str, default="all", help="Specific Farm ID (e.g. FARM_MH_PUNE_01) or 'all' to stream across all managed farms")
+    default_delay = float(os.getenv("TELEMETRY_INTERVAL", 120.0))
+    parser.add_argument("--delay", type=float, default=default_delay, help="Delay in seconds between telemetry cycles (default 120s / 2min)")
+    parser.add_argument("--batch-size", type=int, default=5, help="Number of sensor events to batch per queue publish (cost optimization)")
     parser.add_argument("--continuous", action="store_true", help="Run producer continuously")
-    parser.add_argument("--drift-step", type=float, default=0.015, help="Daily feature drift rate per batch (1.5 percent to 2.0 percent)")
     return parser.parse_args()
 
 def get_db_connection():
@@ -36,161 +28,154 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
-def get_persisted_drift_state():
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT current_drift_pct, phase FROM drift_state ORDER BY id DESC LIMIT 1")
-        row = cursor.fetchone()
-        conn.close()
-        if row:
-            return float(row["current_drift_pct"]), str(row["phase"])
-    except Exception as e:
-        print(f"Drift state read notice: {e}")
-    return 0.0, "baseline"
+def get_managed_farms(target_farm_id: str = "all"):
+    """Fetches managed farms registered in the system."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    if target_farm_id != "all":
+        cursor.execute("SELECT farm_id, farm_name, district, region, acreage, soil_type, current_crop FROM farms WHERE farm_id = ?", (target_farm_id,))
+    else:
+        cursor.execute("SELECT farm_id, farm_name, district, region, acreage, soil_type, current_crop FROM farms WHERE status = 'active'")
+    rows = cursor.fetchall()
+    conn.close()
 
-def update_persisted_drift_state(drift_pct: float, phase: str):
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        cursor.execute(
-            "INSERT INTO drift_state (current_drift_pct, phase, last_updated) VALUES (?, ?, ?)",
-            (drift_pct, phase, now_str)
-        )
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"Drift state write notice: {e}")
+    if not rows:
+        # Fallback default farms if table is freshly migrating
+        return [
+            {"farm_id": "FARM_MH_PUNE_01", "farm_name": "Kisan Green Valley Farm", "district": "PUNE", "region": "Maharashtra", "soil_type": "Clayey Loam", "current_crop": "rice"},
+            {"farm_id": "FARM_MH_NASHIK_02", "farm_name": "Godavari Agro Orchards", "district": "NASHIK", "region": "Maharashtra", "soil_type": "Black Soil", "current_crop": "grapes"},
+            {"farm_id": "FARM_MH_SATARA_03", "farm_name": "Sahyadri Valley Plantation", "district": "SATARA", "region": "Maharashtra", "soil_type": "Red Loamy", "current_crop": "cotton"},
+            {"farm_id": "FARM_MH_SOLAPUR_04", "farm_name": "Solapur Dryland Agro Hub", "district": "SOLAPUR", "region": "Maharashtra", "soil_type": "Sandy Loam", "current_crop": "pomegranate"},
+            {"farm_id": "FARM_MH_NAGPUR_05", "farm_name": "Vidarbha Citrus Agro Estate", "district": "NAGPUR", "region": "Maharashtra", "soil_type": "Black Cotton", "current_crop": "orange"},
+        ]
+    return [dict(r) for r in rows]
 
-def update_sensor_heartbeat(field_id: str):
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        cursor.execute(
-            "INSERT OR REPLACE INTO sensor_heartbeat (field_id, sensor_type, last_ping) VALUES (?, ?, ?)",
-            (field_id, "Multi-Sensor Pod (NPK, Temp, Moisture)", now_str)
-        )
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        pass
+def load_real_sensor_datasets():
+    """Loads authentic Indian government & NRSC sensor datasets without synthetic noise."""
+    if not os.path.exists(SM_MAHARASHTRA_CSV):
+        raise FileNotFoundError(f"Missing authentic Maharashtra soil moisture sensor dataset at {SM_MAHARASHTRA_CSV}")
+    if not os.path.exists(CROP_REAL_CSV):
+        raise FileNotFoundError(f"Missing authentic crop agro-climatic dataset at {CROP_REAL_CSV}")
 
+    sm_df = pd.read_csv(SM_MAHARASHTRA_CSV)
+    crop_df = pd.read_csv(CROP_REAL_CSV)
+    return sm_df, crop_df
 
-def run_producer(continuous: bool = True, delay: float = 1.0, field_id_arg: str = "auto"):
-    if not os.path.exists(CROP_CSV):
-        raise FileNotFoundError(f"Source AgriTech dataset missing at {CROP_CSV}.")
-
-        
-    print(f"Reading AgriTech sensor observations from {CROP_CSV}...")
-    df = pd.read_csv(CROP_CSV)
+def run_real_sensor_producer(continuous: bool = True, delay: float = 120.0, farm_id_arg: str = "all", limit: int = 100, batch_size: int = 5):
+    print("==================================================================")
+    print(" AgriTech Production Sensor Ingestion Engine (data.gov.in / NRSC) ")
+    print("==================================================================")
     
-    print("Initializing Queue Service client...")
+    farms = get_managed_farms(farm_id_arg)
+    print(f"Targeting {len(farms)} managed farm(s): {[f['farm_id'] for f in farms]}")
+    
+    sm_df, crop_df = load_real_sensor_datasets()
+    print(f"Loaded {len(sm_df)} official district soil moisture records & {len(crop_df)} real agro-meteorological records.")
+
+    # Pre-partition real records per farm to stream authentic sequential telemetry
+    farm_data_pools = {}
+    for farm in farms:
+        dist = farm["district"].upper()
+        crop = farm["current_crop"].lower()
+
+        dist_sm = sm_df[sm_df["DistrictName"].str.upper() == dist]["Aggregate Soilmoisture Percentage (at 15cm)"].dropna().tolist()
+        if not dist_sm:
+            dist_sm = sm_df["Aggregate Soilmoisture Percentage (at 15cm)"].dropna().tolist()
+
+        crop_records = crop_df[crop_df["label"].str.lower() == crop].to_dict(orient="records")
+        if not crop_records:
+            crop_records = crop_df.to_dict(orient="records")
+
+        farm_data_pools[farm["farm_id"]] = {
+            "farm": farm,
+            "sm_pool": dist_sm,
+            "agro_pool": crop_records,
+            "sm_idx": 0,
+            "agro_idx": 0
+        }
+
     queue = QueueService()
-    
-    initial_drift, initial_phase = get_persisted_drift_state()
-    print(f"Starting AgriTech telemetry stream — Initial Drift State: {initial_drift*100:.1f}% ({initial_phase})...")
-    
-    sent_count = 0
+    published_count = 0
+    batch_buffer = []
 
-    while True:
-        shuffled = df.sample(frac=1.0).reset_index(drop=True)
-        
-        for idx, row in shuffled.iterrows():
-            field_id = field_id_arg if field_id_arg != "auto" else FIELDS[sent_count % len(FIELDS)]
-            soil_type = SOIL_TYPES[sent_count % len(SOIL_TYPES)]
+    print("\nBeginning real-time sensor telemetry transmission...")
 
-            # Sync with DB persisted drift state machine (2,000 event gradual cycle)
-            persisted_drift_pct, persisted_phase = get_persisted_drift_state()
-            if persisted_phase == "baseline" and persisted_drift_pct == 0.0:
-                cycle_step = sent_count % 2000
-                if cycle_step > 500:
-                    sent_count = 0
-                    cycle_step = 0
-            else:
-                cycle_step = sent_count % 2000
+    try:
+        while True:
+            for farm_id, pool in farm_data_pools.items():
+                farm = pool["farm"]
+                sm_vals = pool["sm_pool"]
+                agro_vals = pool["agro_pool"]
 
-            if cycle_step < 1000:
-                # Gradual Accumulating Phase (0% to 30% over 1,000 events)
-                drift_accum_pct = (cycle_step / 1000.0) * 0.30
-                drift_phase = "accumulating"
-            elif cycle_step < 1300:
-                # Peak Phase (30% hold over 300 events)
-                drift_accum_pct = 0.30
-                drift_phase = "peak"
-            elif cycle_step < 1900:
-                # Recovery Phase (30% down to 0%)
-                drift_accum_pct = 0.30 * (1.0 - (cycle_step - 1300) / 600.0)
-                drift_phase = "recovering"
-            else:
-                # Baseline Phase
-                drift_accum_pct = 0.0
-                drift_phase = "baseline"
+                # Sequential real sensor observation
+                soil_moisture_val = float(sm_vals[pool["sm_idx"] % len(sm_vals)])
+                agro_record = agro_vals[pool["agro_idx"] % len(agro_vals)]
 
-            if sent_count % 25 == 0:
-                update_persisted_drift_state(drift_accum_pct, drift_phase)
+                pool["sm_idx"] += 1
+                pool["agro_idx"] += 1
 
-            is_drifted = drift_accum_pct >= 0.18
+                event_payload = {
+                    "farm_id": farm["farm_id"],
+                    "field_id": farm["farm_id"],
+                    "farm_name": farm["farm_name"],
+                    "district": farm["district"],
+                    "nitrogen": round(float(agro_record.get("N", 50.0)), 1),
+                    "phosphorus": round(float(agro_record.get("P", 40.0)), 1),
+                    "potassium": round(float(agro_record.get("K", 40.0)), 1),
+                    "temperature": round(float(agro_record.get("temperature", 25.0)), 1),
+                    "humidity": round(float(agro_record.get("humidity", 60.0)), 1),
+                    "ph": round(float(agro_record.get("ph", 6.5)), 2),
+                    "soil_moisture": round(soil_moisture_val, 1),
+                    "rainfall": round(float(agro_record.get("rainfall", 0.0)), 1),
+                    "soil_type": str(farm.get("soil_type", "Loamy")),
+                    "crop_type": str(farm.get("current_crop", agro_record.get("label", "rice"))),
+                    "timestamp": datetime.now().isoformat()
+                }
 
+                batch_buffer.append(event_payload)
 
-            base_n = float(row.get("N", 50.0))
-            base_p = float(row.get("P", 40.0))
-            base_k = float(row.get("K", 40.0))
-            base_temp = float(row.get("temperature", 25.0))
-            base_hum = float(row.get("humidity", 60.0))
-            base_ph = float(row.get("ph", 6.5))
-            base_rain = float(row.get("rainfall", 100.0))
-            
-            n_val = base_n * (1.0 + drift_accum_pct * 0.8) + np.random.normal(0, 2)
-            p_val = base_p * max(0.2, 1.0 - drift_accum_pct * 0.7) + np.random.normal(0, 2)
-            k_val = base_k * (1.0 + drift_accum_pct * 0.5) + np.random.normal(0, 2)
-            temp_val = base_temp * (1.0 + drift_accum_pct * 0.6) + np.random.normal(0, 1)
-            hum_val = base_hum * max(0.2, 1.0 - drift_accum_pct * 0.5) + np.random.normal(0, 2)
-            ph_val = base_ph + drift_accum_pct * 1.5 + np.random.normal(0, 0.05)
-            
-            base_sm = float(np.random.uniform(45.0, 75.0))
-            soil_moisture = max(8.0, base_sm * (1.0 - drift_accum_pct * 0.85) + np.random.normal(0, 2))
-            rainfall_val = max(0.0, base_rain * (1.0 - drift_accum_pct * 0.8) + np.random.normal(0, 5))
+                # Batch dispatch for cost & performance optimization
+                if len(batch_buffer) >= batch_size:
+                    queue.publish_batch(batch_buffer)
+                    published_count += len(batch_buffer)
+                    
+                    latest = batch_buffer[-1]
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] [REAL SENSOR BATCH: {len(batch_buffer)}] "
+                          f"Farm: {latest['farm_id']} ({latest['district']}) | "
+                          f"Crop: {latest['crop_type']:10s} | "
+                          f"Moisture: {latest['soil_moisture']:4.1f}% | "
+                          f"NPK: {latest['nitrogen']}-{latest['phosphorus']}-{latest['potassium']} | "
+                          f"Temp: {latest['temperature']}°C")
+                    batch_buffer = []
 
-            event_payload = {
-                "field_id": field_id,
-                "nitrogen": round(max(0.0, n_val), 1),
-                "phosphorus": round(max(0.0, p_val), 1),
-                "potassium": round(max(0.0, k_val), 1),
-                "temperature": round(temp_val, 1),
-                "humidity": round(hum_val, 1),
-                "ph": round(ph_val, 2),
-                "soil_moisture": round(soil_moisture, 1),
-                "rainfall": round(rainfall_val, 1),
-                "soil_type": soil_type,
-                "crop_type": str(row.get("label", "maize")),
-                "timestamp": datetime.now().isoformat(),
-                "drift_accum_pct": round(drift_accum_pct * 100, 1)
-            }
-            
-            try:
-                queue.publish(event_payload)
-                update_sensor_heartbeat(field_id)
-                sent_count += 1
-                if sent_count % 10 == 0:
-                    status_lbl = f"PROGRESSIVE DRIFT: +{drift_accum_pct*100:.1f}%" if is_drifted else "BASELINE"
-                    print(f"[{datetime.now().strftime('%H:%M:%S')}] [{status_lbl}] Field: {field_id} | Crop: {event_payload['crop_type']:12s} | Temp: {temp_val:.1f}°C | SM: {soil_moisture:.1f}%")
-            except Exception as e:
-                print(f"Failed to publish telemetry event: {e}")
-                
-            if not continuous:
+                if not continuous and limit > 0 and published_count >= limit:
+                    break
+
+            # Flush any remaining events
+            if batch_buffer and (not continuous or delay > 0):
+                queue.publish_batch(batch_buffer)
+                published_count += len(batch_buffer)
+                batch_buffer = []
+
+            if not continuous and limit > 0 and published_count >= limit:
                 break
-                
+
             if delay > 0:
                 time.sleep(delay)
-                
-        if not continuous:
-            break
-            
-    print(f"AgriTech Telemetry Producer completed. Published {sent_count} events.")
+
+    except KeyboardInterrupt:
+        print("\nProducer stopped by operator.")
+
+    print(f"\nReal sensor ingestion completed. Total published observations: {published_count}")
+
+run_producer = run_real_sensor_producer
 
 if __name__ == "__main__":
     args = parse_args()
-    run_producer(continuous=args.continuous, delay=args.delay, field_id_arg=args.field_id)
-
+    run_real_sensor_producer(
+        continuous=args.continuous,
+        delay=args.delay,
+        farm_id_arg=args.farm_id,
+        limit=args.limit,
+        batch_size=args.batch_size
+    )
