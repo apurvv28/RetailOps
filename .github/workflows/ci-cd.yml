@@ -10,7 +10,7 @@ permissions:
 
 env:
   AWS_DEFAULT_REGION: ap-south-1
-  AWS_ALB_DNS: vajra-alb-73485288.ap-south-1.elb.amazonaws.com
+  AWS_ALB_DNS: krishiloop-alb-1915260657.ap-south-1.elb.amazonaws.com
   AMPLIFY_APP_ID: debl68w4trakj
 
 jobs:
