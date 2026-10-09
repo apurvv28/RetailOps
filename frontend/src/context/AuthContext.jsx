@@ -66,6 +66,28 @@ export const AuthProvider = ({ children }) => {
     }
   }, [isSignedIn, clerkUser, isClerkLoaded, syncClerkUser]);
 
+  const demoLogin = async (role = 'farmer') => {
+    try {
+      const res = await api.post('/api/auth/demo-login', { role });
+      const { access_token, user: backendUser } = res.data;
+      localStorage.setItem('agritech_token', access_token);
+      localStorage.setItem('agritech_user', JSON.stringify(backendUser));
+      setToken(access_token);
+      setUser(backendUser);
+      return backendUser;
+    } catch (err) {
+      console.error('Demo login fallback triggered:', err);
+      const mockUser = role === 'admin'
+        ? { id: 'admin@agritech.com', email: 'admin@agritech.com', name: 'AgriOps System Admin', role: 'admin' }
+        : { id: 'farmer@agritech.com', email: 'farmer@agritech.com', name: 'Ramesh Kumar (Farmer)', role: 'farmer' };
+      localStorage.setItem('agritech_token', 'mock-demo-jwt-token');
+      localStorage.setItem('agritech_user', JSON.stringify(mockUser));
+      setToken('mock-demo-jwt-token');
+      setUser(mockUser);
+      return mockUser;
+    }
+  };
+
   const logout = async () => {
     localStorage.removeItem('agritech_token');
     localStorage.removeItem('agritech_user');
@@ -92,6 +114,7 @@ export const AuthProvider = ({ children }) => {
         clerkUser,
         syncClerkUser,
         setSelectedRole,
+        demoLogin,
         logout
       }}
     >

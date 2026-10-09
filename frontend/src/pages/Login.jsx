@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { ShieldCheck, Sprout, Cpu, Lock, UserCheck, AlertCircle } from 'lucide-react';
 
 export const Login = () => {
-  const { user, loading, setSelectedRole, syncClerkUser } = useAuth();
+  const { user, loading, setSelectedRole, syncClerkUser, demoLogin } = useAuth();
   const { isSignedIn, isLoaded } = useUser();
   const navigate = useNavigate();
   const [selectedRole, setRole] = useState(() => localStorage.getItem('agritech_selected_role') || 'farmer');
@@ -113,30 +113,41 @@ export const Login = () => {
           </div>
 
           {/* Clerk Sign-In Component */}
-          <div className="flex flex-col items-center justify-center pt-2">
+          <div className="flex flex-col items-center justify-center pt-2 w-full min-h-[320px]">
             <SignIn
               routing="hash"
               appearance={{
-                elements: {
-                  rootBox: 'w-full',
-                  card: 'bg-transparent shadow-none border-none p-0 w-full',
-                  headerTitle: 'text-white',
-                  headerSubtitle: 'text-slate-400',
-                  socialButtonsBlockButton: 'bg-slate-800 border-slate-700 text-white hover:bg-slate-700',
-                  socialButtonsBlockButtonText: 'text-white',
-                  dividerLine: 'bg-slate-700',
-                  dividerText: 'text-slate-500',
-                  formFieldLabel: 'text-slate-300',
-                  formFieldInput: 'bg-slate-800 border-slate-700 text-white',
-                  formButtonPrimary: 'bg-emerald-600 hover:bg-emerald-500',
-                  footerActionLink: 'text-emerald-400 hover:text-emerald-300',
-                  identityPreviewText: 'text-white',
-                  identityPreviewEditButton: 'text-emerald-400',
-                  formFieldInputShowPasswordButton: 'text-slate-400',
-                  footer: 'hidden'
+                variables: {
+                  colorPrimary: '#059669',
+                  colorBackground: '#0f172a',
+                  colorText: '#f8fafc',
+                  colorTextSecondary: '#94a3b8',
+                  colorInputBackground: '#1e293b',
+                  colorInputText: '#ffffff',
                 }
               }}
             />
+          </div>
+
+          {/* Quick Demo Access Fallback */}
+          <div className="pt-2 border-t border-slate-800 text-center">
+            <p className="text-xs text-slate-500 mb-2">Or continue with instant demo credentials</p>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const loggedUser = await demoLogin(selectedRole);
+                  const targetPath = loggedUser.role === 'admin' ? '/admin' : '/farmer/irrigation';
+                  navigate(targetPath, { replace: true });
+                } catch (err) {
+                  setError('Demo login failed');
+                }
+              }}
+              className="w-full py-2 px-3 rounded-xl text-xs font-medium bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/60 transition-all flex items-center justify-center gap-2"
+            >
+              <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Instant Demo Access as {selectedRole === 'admin' ? 'Admin' : 'Farmer'}</span>
+            </button>
           </div>
         </div>
 
