@@ -329,40 +329,40 @@ def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
             cursor.execute("SELECT id, google_id, email, name, picture, role FROM users WHERE id = ? OR email = ?", (user_id_int, str(user_id)))
             row = cursor.fetchone()
             conn.close()
-            if not row:
-                raise HTTPException(status_code=401, detail="User not found")
-            return dict(row)
+            if row:
+                return dict(row)
         else:
             res = conn.execute(text("SELECT id, google_id, email, name, picture, role FROM users WHERE id = :uid OR email = :uemail"), {"uid": user_id_int, "uemail": str(user_id)}).fetchone()
             conn.close()
-            if not res:
-                raise HTTPException(status_code=401, detail="User not found")
-            return {"id": res[0], "google_id": res[1], "email": res[2], "name": res[3], "picture": res[4], "role": res[5]}
+            if res:
+                return {"id": res[0], "google_id": res[1], "email": res[2], "name": res[3], "picture": res[4], "role": res[5]}
     except Exception as e:
         if hasattr(conn, "close"):
-            conn.close()
-        # Fallback to AWS DynamoDB
-        try:
             try:
-                from backend.app.dynamo_db import get_user_by_email_or_google_id
-            except ImportError:
-                from app.dynamo_db import get_user_by_email_or_google_id
-            d_user = get_user_by_email_or_google_id(str(user_id))
-            if d_user:
-                return {
-                    "id": d_user.get("id", str(user_id)),
-                    "google_id": d_user.get("google_id", ""),
-                    "email": d_user.get("email", str(user_id)),
-                    "name": d_user.get("name", "User"),
-                    "picture": d_user.get("picture", ""),
-                    "role": d_user.get("role", "farmer")
-                }
-        except Exception as d_err:
-            pass
+                conn.close()
+            except Exception:
+                pass
 
-        if isinstance(e, HTTPException):
-            raise e
-        raise HTTPException(status_code=500, detail=f"User retrieval error: {e}")
+    # 2. Check AWS DynamoDB for the user
+    try:
+        try:
+            from backend.app.dynamo_db import get_user_by_email_or_google_id
+        except ImportError:
+            from app.dynamo_db import get_user_by_email_or_google_id
+        d_user = get_user_by_email_or_google_id(str(user_id))
+        if d_user:
+            return {
+                "id": d_user.get("id", str(user_id)),
+                "google_id": d_user.get("google_id", ""),
+                "email": d_user.get("email", str(user_id)),
+                "name": d_user.get("name", "User"),
+                "picture": d_user.get("picture", ""),
+                "role": d_user.get("role", "farmer")
+            }
+    except Exception as d_err:
+        pass
+
+    raise HTTPException(status_code=401, detail="User not found")
 
 
 def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
