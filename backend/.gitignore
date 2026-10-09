@@ -369,6 +369,8 @@ vite.config.ts.timestamp-*
 
 *.db
 *.sql
+!schema/database.sql
+!backend/schema/database.sql
 *.csv
 *.xlsx
 .env
