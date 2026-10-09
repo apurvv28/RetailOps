@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://13.201.53.237.nip.io';
 const API_KEY = import.meta.env.VITE_API_KEY || '';
 
 const api = axios.create({
