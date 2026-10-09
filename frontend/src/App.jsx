@@ -1,11 +1,14 @@
 import React, { Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { DashboardProvider } from './context/DashboardContext';
 import { DashboardLayout } from './layouts/DashboardLayout';
 import { FarmerLayout } from './layouts/FarmerLayout';
 import { Login } from './pages/Login';
 import { Loader } from './components/ui/Loader';
+//import { AnimatedFarmHero } from './AnimatedFarmHero';
+import { AnimatedFarmHero } from "./components/ui/AnimatedFarmHero/AnimatedFarmHero";
+
 
 // Lazy Admin Pages
 const Overview = React.lazy(() => import('./pages/Overview').then(m => ({ default: m.Overview })));
@@ -22,13 +25,14 @@ const FertilizerRecommendation = React.lazy(() => import('./pages/farmer/Fertili
 const YieldPrediction = React.lazy(() => import('./pages/farmer/YieldPrediction').then(m => ({ default: m.YieldPrediction })));
 const FarmerProfile = React.lazy(() => import('./pages/farmer/FarmerProfile').then(m => ({ default: m.FarmerProfile })));
 
+// Shared Loading Fallback for Sub-routes
 const PageLoader = () => (
   <div className="h-[60vh] flex items-center justify-center">
     <Loader size={28} text="Loading module..." />
   </div>
 );
 
-// Protected Route wrappers
+// Protected Route Wrapper
 const RequireAuth = ({ children, allowedRoles }) => {
   const { user, loading } = useAuth();
 
@@ -45,7 +49,6 @@ const RequireAuth = ({ children, allowedRoles }) => {
   }
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
-    // If farmer tries to visit admin routes, redirect to farmer dashboard
     if (user.role === 'farmer') {
       return <Navigate to="/farmer/irrigation" replace />;
     }
@@ -54,15 +57,34 @@ const RequireAuth = ({ children, allowedRoles }) => {
   return children;
 };
 
-// Root index redirect based on user role
-const RootRedirect = () => {
-  const { user, loading } = useAuth();
-  if (loading) return null;
-  if (!user) return <Navigate to="/login" replace />;
-  return user.role === 'admin' ? <Navigate to="/admin" replace /> : <Navigate to="/farmer/irrigation" replace />;
+// Landing Page Hero Wrapper (Integrates with Router Navigation)
+const LandingPage = () => {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+
+  const handleGetStarted = () => {
+    if (user) {
+      navigate(user.role === "admin" ? "/admin" : "/farmer/irrigation");
+    } else {
+      navigate("/login");
+    }
+  };
+
+  return (
+    <AnimatedFarmHero
+      badgeText="AI-POWERED AGRICULTURE"
+      title="AI-powered agriculture"
+      subtitle="for smarter farming"
+      description="Turn agricultural data into smarter predictions, better decisions, and more efficient farming."
+      primaryCtaText="Get Started"
+      secondaryCtaText="Explore Platform"
+      onGetStarted={handleGetStarted}
+      
+    />
+  );
 };
 
-function App() {
+export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
@@ -73,13 +95,13 @@ function App() {
             </div>
           }>
             <Routes>
+              {/* Public Landing Page */}
+              <Route path="/" element={<LandingPage />} />
+
               {/* Public Login Route */}
               <Route path="/login" element={<Login />} />
 
-              {/* Root Index Redirect */}
-              <Route path="/" element={<RootRedirect />} />
-
-              {/* Admin Dashboard Routes (Admin Role Only) */}
+              {/* Admin Dashboard Routes */}
               <Route path="/admin" element={
                 <RequireAuth allowedRoles={['admin']}>
                   <DashboardLayout />
@@ -93,7 +115,7 @@ function App() {
                 <Route path="settings" element={<Suspense fallback={<PageLoader />}><Settings /></Suspense>} />
               </Route>
 
-              {/* Farmer Dashboard Routes (Farmer and Admin Roles) */}
+              {/* Farmer Dashboard Routes */}
               <Route path="/farmer" element={
                 <RequireAuth allowedRoles={['farmer', 'admin']}>
                   <FarmerLayout />
@@ -107,7 +129,7 @@ function App() {
                 <Route path="profile" element={<Suspense fallback={<PageLoader />}><FarmerProfile /></Suspense>} />
               </Route>
 
-              {/* Fallback Catch-all Route */}
+              {/* Fallback Route */}
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
@@ -116,5 +138,3 @@ function App() {
     </BrowserRouter>
   );
 }
-
-export default App;
