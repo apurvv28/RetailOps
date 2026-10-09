@@ -53,6 +53,19 @@ def get_db_connection():
     db_path = os.path.join(backend_dir, "retail_ops.db")
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS retraining_jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id TEXT UNIQUE,
+            status TEXT NOT NULL,
+            trigger_source TEXT,
+            target_environment TEXT,
+            metrics_summary TEXT,
+            created_at TEXT,
+            completed_at TEXT
+        )
+    """)
+    conn.commit()
     return conn
 
 def update_job_status(job_id: str, status: str, metrics_summary: dict = None):

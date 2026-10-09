@@ -158,3 +158,18 @@ CREATE TABLE IF NOT EXISTS drift_metrics_log (
 
 CREATE INDEX IF NOT EXISTS idx_drift_metrics_model ON drift_metrics_log(model_key);
 CREATE INDEX IF NOT EXISTS idx_drift_metrics_timestamp ON drift_metrics_log(timestamp);
+
+-- Table for SageMaker & Local Retraining Jobs History
+CREATE TABLE IF NOT EXISTS retraining_jobs (
+    id SERIAL PRIMARY KEY,
+    job_id VARCHAR(100) UNIQUE NOT NULL,
+    status VARCHAR(50) NOT NULL,
+    trigger_source VARCHAR(100),
+    target_environment VARCHAR(50),
+    metrics_summary TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_retraining_jobs_status ON retraining_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_retraining_jobs_created ON retraining_jobs(created_at);
