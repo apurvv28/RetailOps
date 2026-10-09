@@ -367,6 +367,10 @@ vite.config.ts.timestamp-*
 .vite/
 
 *.json
+!package.json
+!package-lock.json
+!frontend/package.json
+!frontend/package-lock.json
 /secrets/
 
 *.db
