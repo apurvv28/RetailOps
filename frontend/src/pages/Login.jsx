@@ -59,10 +59,10 @@ export const Login = () => {
   };
 
   return (
-    <main className="relative min-h-[100dvh] w-full overflow-hidden bg-[#70b9cf] text-slate-900 font-sans selection:bg-[#000] selection:text-[#fff] flex flex-col justify-between">
+    <main className="relative min-h-[100dvh] w-full overflow-y-auto bg-[#70b9cf] text-slate-900 font-sans selection:bg-[#000] selection:text-[#fff] flex flex-col justify-between">
       {/* Background Video — Identical to Landing Page */}
       <video
-        className="absolute inset-0 w-full h-full object-cover object-center pointer-events-none z-0"
+        className="fixed inset-0 w-full h-full object-cover object-center pointer-events-none z-0"
         src="/farm-video.mp4"
         autoPlay
         loop
@@ -73,10 +73,10 @@ export const Login = () => {
       />
 
       {/* Subtle Readability Overlay */}
-      <div className="absolute inset-0 bg-gradient-to-b from-white/10 via-black/15 to-black/45 z-[1] pointer-events-none" />
+      <div className="fixed inset-0 bg-gradient-to-b from-white/10 via-black/15 to-black/45 z-[1] pointer-events-none" />
 
       {/* Minimalist Top Bar */}
-      <header className="relative z-10 w-full max-w-7xl mx-auto px-6 pt-5 flex items-center justify-between">
+      <header className="relative z-10 w-full max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
         <button
           type="button"
           onClick={() => navigate('/')}
@@ -103,10 +103,10 @@ export const Login = () => {
         </button>
       </header>
 
-      {/* Center Auth Card — Clean Editorial Minimalist Container */}
-      <div className="relative z-10 w-full max-w-md mx-auto px-4 py-8 flex flex-col items-center">
+      {/* Center Auth Card — Clean Single-Layer Card Container */}
+      <div className="relative z-10 w-full max-w-[420px] mx-auto px-4 py-4 flex flex-col items-center my-auto">
         {/* Editorial Eyebrow Tag */}
-        <div className="inline-flex items-center gap-2 px-3 py-1 mb-3 rounded-full bg-white/80 backdrop-blur-md border border-black/10 shadow-sm">
+        <div className="inline-flex items-center gap-2 px-3 py-1 mb-2 rounded-full bg-white/80 backdrop-blur-md border border-black/10 shadow-sm">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-700 animate-pulse" />
           <span className="text-[11px] font-[800] tracking-[0.14em] uppercase text-black/90">
             Secure Platform Access
@@ -114,24 +114,24 @@ export const Login = () => {
         </div>
 
         {/* Headline matching landing page typography */}
-        <h1 className="text-3xl sm:text-4xl font-[900] tracking-[-0.04em] text-black text-center mb-1 drop-shadow-sm">
+        <h1 className="text-2xl sm:text-3xl font-[900] tracking-[-0.04em] text-black text-center mb-1 drop-shadow-sm">
           Welcome to KrishiLoop
         </h1>
-        <p className="text-xs sm:text-sm font-[600] text-black/85 text-center mb-6 max-w-xs drop-shadow-sm">
+        <p className="text-xs font-[600] text-black/85 text-center mb-5 max-w-xs drop-shadow-sm">
           Sign in to access precision agricultural intelligence, soil telemetry, and predictive advisories.
         </p>
 
-        {/* Clean White Card Surface (Minimalist 1px border, crisp geometry) */}
-        <div className="w-full bg-white/95 backdrop-blur-xl border border-black/10 rounded-2xl p-6 sm:p-7 shadow-[0_8px_30px_rgb(0,0,0,0.12)] space-y-4">
+        {/* Single Outer Frame with Seamless Integration */}
+        <div className="w-full bg-white/95 backdrop-blur-xl border border-black/10 rounded-2xl p-5 shadow-[0_12px_36px_rgb(0,0,0,0.14)] space-y-3.5">
           {error && (
-            <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 flex items-start gap-2.5 text-rose-800 text-xs">
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 flex items-start gap-2.5 text-rose-800 text-xs">
               <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5 text-rose-600" />
               <span className="leading-relaxed">{error}</span>
             </div>
           )}
 
           {syncing && (
-            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2.5 text-emerald-900 text-xs">
+            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2.5 text-emerald-900 text-xs">
               <div className="w-3.5 h-3.5 border-2 border-emerald-700 border-t-transparent rounded-full animate-spin flex-shrink-0" />
               <span>Verifying session with AWS DynamoDB...</span>
             </div>
@@ -139,10 +139,10 @@ export const Login = () => {
 
           {/* Account Type Selector — Minimalist Segmented Control */}
           <div>
-            <label className="block text-[11px] font-[700] text-slate-500 uppercase tracking-[0.08em] mb-2">
+            <label className="block text-[11px] font-[700] text-slate-500 uppercase tracking-[0.08em] mb-1.5">
               Select Account Portal
             </label>
-            <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200">
+            <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200">
               <button
                 type="button"
                 onClick={() => handleRoleChange('farmer')}
@@ -168,40 +168,46 @@ export const Login = () => {
             </div>
           </div>
 
-          {/* Clerk Interactive Sign-In Component */}
-          <div className="flex flex-col items-center justify-center pt-1 w-full min-h-[300px]">
+          {/* Clerk Interactive Sign-In Component — Perfectly Fit to Container */}
+          <div className="w-full flex justify-center">
             <SignIn
               routing="hash"
               appearance={{
                 variables: {
                   colorPrimary: '#000000',
-                  colorBackground: '#ffffff',
+                  colorBackground: 'transparent',
                   colorText: '#0f172a',
-                  colorTextSecondary: '#475569',
+                  colorTextSecondary: '#64748b',
                   colorInputBackground: '#f8fafc',
                   colorInputText: '#0f172a',
                   borderRadius: '0.75rem',
                   fontFamily: 'inherit',
                 },
                 elements: {
-                  rootBox: 'w-full',
-                  card: 'bg-transparent shadow-none border-none p-0 w-full',
-                  formButtonPrimary: 'bg-black hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl shadow-sm transition-all',
-                  socialButtonsBlockButton: 'bg-slate-50 border border-slate-200 text-slate-800 hover:bg-slate-100 rounded-xl transition-all',
-                  formFieldInput: 'bg-slate-50 border border-slate-200 text-slate-900 rounded-xl focus:border-black focus:ring-0',
-                  footerActionLink: 'text-black font-semibold hover:underline',
+                  rootBox: 'w-full m-0 p-0 shadow-none border-none',
+                  cardBox: 'w-full m-0 p-0 shadow-none border-none',
+                  card: 'w-full m-0 p-0 shadow-none border-none bg-transparent',
+                  header: 'hidden',
                   headerTitle: 'hidden',
                   headerSubtitle: 'hidden',
+                  formButtonPrimary: 'w-full bg-black hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl shadow-none transition-all',
+                  socialButtonsBlockButton: 'w-full bg-slate-50 border border-slate-200 text-slate-800 hover:bg-slate-100 rounded-xl transition-all shadow-none py-2.5',
+                  socialButtonsBlockButtonText: 'font-semibold text-slate-800',
+                  formFieldInput: 'w-full bg-slate-50 border border-slate-200 text-slate-900 rounded-xl focus:border-black focus:ring-0 text-sm py-2 px-3',
+                  formFieldLabel: 'text-xs font-semibold text-slate-600',
+                  footerActionLink: 'text-black font-semibold hover:underline',
+                  footerActionText: 'text-xs text-slate-500',
                   identityPreviewText: 'text-slate-800 font-medium',
                   dividerLine: 'bg-slate-200',
-                  dividerText: 'text-slate-400 text-xs uppercase tracking-wider',
+                  dividerText: 'text-slate-400 text-[10px] uppercase tracking-wider',
+                  footer: 'pt-2',
                 }
               }}
             />
           </div>
 
           {/* Quick Demo Access Fallback */}
-          <div className="pt-3 border-t border-slate-100">
+          <div className="pt-2 border-t border-slate-100">
             <button
               type="button"
               disabled={demoLoading}
@@ -218,8 +224,8 @@ export const Login = () => {
           </div>
         </div>
 
-        {/* Security & Architecture Badges */}
-        <div className="mt-6 flex items-center justify-center gap-5 text-[11px] font-[600] text-black/80 drop-shadow-sm">
+        {/* Security Badges */}
+        <div className="mt-5 flex items-center justify-center gap-4 text-[11px] font-[600] text-black/80 drop-shadow-sm">
           <div className="flex items-center gap-1.5">
             <Lock className="w-3.5 h-3.5 text-black" />
             <span>AWS DynamoDB</span>
@@ -237,7 +243,7 @@ export const Login = () => {
       </div>
 
       {/* Bottom Features Strip matching Landing Page bottomInfo */}
-      <footer className="relative z-10 w-full max-w-7xl mx-auto px-6 pb-5 flex items-center justify-center sm:justify-between text-xs font-[700] text-black/80 tracking-[-0.01em]">
+      <footer className="relative z-10 w-full max-w-7xl mx-auto px-6 py-4 flex items-center justify-center sm:justify-between text-xs font-[700] text-black/80 tracking-[-0.01em]">
         <div className="hidden sm:flex items-center gap-6">
           <span className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-black/60" /> AI Yield & Harvest
