@@ -150,14 +150,14 @@ async def track_latency_middleware(request: Request, call_next):
 def count_pending_queue_messages() -> int:
     try:
         backend_dir = os.path.dirname(os.path.dirname(__file__))
-        queue_db_path = os.path.join(backend_dir, "ingestion", "local_queue.db")
-        if os.path.exists(queue_db_path):
-            conn = sqlite3.connect(queue_db_path)
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM queue WHERE processed = 0")
-            row = cursor.fetchone()
-            conn.close()
-            return int(row[0]) if row else 0
+        for p in [os.path.join(backend_dir, "local_queue.db"), os.path.join(backend_dir, "ingestion", "local_queue.db")]:
+            if os.path.exists(p):
+                conn = sqlite3.connect(p)
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM queue WHERE status = 'pending' OR status = '0'")
+                row = cursor.fetchone()
+                conn.close()
+                return int(row[0]) if row else 0
     except Exception as e:
         logger.warning(f"Queue depth query warning: {e}")
     return 0
@@ -282,8 +282,8 @@ def start_background_streaming_services():
     def producer_worker():
         try:
             from backend.ingestion.producer import run_producer
-            telemetry_interval = float(os.getenv("TELEMETRY_INTERVAL", 120.0))
-            logger.info(f"Auto-starting Telemetry Producer background thread (every {telemetry_interval}s / 2 minutes)...")
+            telemetry_interval = float(os.getenv("TELEMETRY_INTERVAL", 10.0))
+            logger.info(f"Auto-starting Telemetry Producer background thread (every {telemetry_interval}s)...")
             run_producer(continuous=True, delay=telemetry_interval)
         except Exception as e:
             logger.warning(f"Producer background thread notice: {e}")
@@ -709,7 +709,7 @@ def get_admin_farm_telemetry(farm_id: str, limit: int = 50, current_user: dict =
 @app.post("/api/admin/trigger-event")
 def trigger_real_sensor_observation(farm_id: str = Query("FARM_MH_PUNE_01"), current_user: dict = Depends(require_admin)):
     """Admin-only: Ingests an authentic sensor observation from official Maharashtra/Agri datasets for testing."""
-    from backend.ingestion.producer import SM_MAHARASHTRA_CSV, CROP_REAL_CSV
+    from backend.ingestion.producer import load_real_sensor_datasets
     from backend.ingestion.consumer import save_event_to_db, run_multi_modal_inferences
     
     conn = get_db_connection()
@@ -722,8 +722,7 @@ def trigger_real_sensor_observation(farm_id: str = Query("FARM_MH_PUNE_01"), cur
     crop = farm_row["current_crop"] if farm_row else "rice"
     soil_type = farm_row["soil_type"] if farm_row else "Loamy"
     
-    sm_df = pd.read_csv(SM_MAHARASHTRA_CSV)
-    crop_df = pd.read_csv(CROP_REAL_CSV)
+    sm_df, crop_df = load_real_sensor_datasets()
     
     dist_sm = sm_df[sm_df["DistrictName"].str.upper() == district.upper()]["Aggregate Soilmoisture Percentage (at 15cm)"].dropna()
     sm_val = float(dist_sm.sample(1).iloc[0]) if not dist_sm.empty else 25.0
@@ -1683,13 +1682,15 @@ def get_raw_events(limit: int = Query(50, ge=1, le=500)):
         conn = get_db_connection()
         if DATABASE_URL.startswith("sqlite:///"):
             cursor = conn.cursor()
-            # Try raw_telemetry table first, fallback to raw_events if table name differs
             try:
                 cursor.execute(
                     """
-                    SELECT id, field_id, crop_type, nitrogen, phosphorus, potassium, temperature, humidity, ph, soil_moisture, rainfall, timestamp
-                    FROM raw_telemetry
-                    ORDER BY id DESC
+                    SELECT r.id, r.farm_id, r.field_id, r.crop_type, r.soil_type, r.nitrogen, r.phosphorus, r.potassium,
+                           r.temperature, r.humidity, r.ph, r.soil_moisture, r.rainfall, r.timestamp,
+                           f.farm_name, f.district
+                    FROM raw_telemetry r
+                    LEFT JOIN farms f ON (r.farm_id = f.farm_id OR r.field_id = f.farm_id)
+                    ORDER BY r.id DESC
                     LIMIT ?
                     """,
                     (limit,)
@@ -1697,8 +1698,12 @@ def get_raw_events(limit: int = Query(50, ge=1, le=500)):
                 for r in cursor.fetchall():
                     events.append({
                         "id": r["id"],
+                        "farm_id": r["farm_id"] or r["field_id"] or "FARM_MH_PUNE_01",
                         "field_id": r["field_id"],
+                        "farm_name": r["farm_name"] or "Kisan Green Valley Farm",
+                        "district": r["district"] or "Maharashtra",
                         "crop_type": r["crop_type"],
+                        "soil_type": r["soil_type"] or "Loamy",
                         "nitrogen": r["nitrogen"],
                         "phosphorus": r["phosphorus"],
                         "potassium": r["potassium"],
