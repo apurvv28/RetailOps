@@ -309,26 +309,32 @@ export const Overview = () => {
           </div>
 
           <div className="space-y-2.5">
-            {rawEvents?.slice(0, 4).map((evt, idx) => (
-              <div 
-                key={idx}
-                className="p-3 rounded-2xl bg-slate-50 dark:bg-white/[0.03] hairline-border flex items-center justify-between text-xs transition-colors hover:bg-slate-100/80 dark:hover:bg-white/[0.06]"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-7 h-7 rounded-full bg-sky-100 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 flex items-center justify-center">
-                    <Droplets className="w-3.5 h-3.5" />
+            {rawEvents && rawEvents.length > 0 ? (
+              rawEvents.slice(0, 4).map((evt, idx) => (
+                <div 
+                  key={evt.id || idx}
+                  className="p-3 rounded-2xl bg-slate-50 dark:bg-white/[0.03] hairline-border flex items-center justify-between text-xs transition-colors hover:bg-slate-100/80 dark:hover:bg-white/[0.06]"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-7 h-7 rounded-full bg-sky-100 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 flex items-center justify-center">
+                      <Droplets className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <span className="font-mono font-bold text-slate-900 dark:text-white">{evt.farm_name || evt.farm_id || evt.field_id}</span>
+                      <span className="text-slate-400 ml-2 capitalize font-medium">{evt.crop_type}</span>
+                    </div>
                   </div>
-                  <div>
-                    <span className="font-mono font-bold text-slate-900 dark:text-white">{evt.field_id}</span>
-                    <span className="text-slate-400 ml-2 capitalize font-medium">{evt.crop_type}</span>
+                  <div className="flex items-center gap-3 font-mono text-slate-600 dark:text-slate-300">
+                    <span>Moisture: <strong>{evt.soil_moisture}%</strong></span>
+                    <span className="text-slate-400">NPK: {evt.nitrogen}-{evt.phosphorus}-{evt.potassium}</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 font-mono text-slate-600 dark:text-slate-300">
-                  <span>Moisture: <strong>{evt.soil_moisture}%</strong></span>
-                  <span className="text-slate-400">NPK: {evt.nitrogen}-{evt.phosphorus}-{evt.potassium}</span>
-                </div>
+              ))
+            ) : (
+              <div className="py-6 text-center text-xs text-slate-400">
+                Connecting to live field sensor stream...
               </div>
-            ))}
+            )}
           </div>
         </Card>
 
