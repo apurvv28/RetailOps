@@ -168,18 +168,20 @@ export const Login = () => {
             </div>
           </div>
 
-          {/* Clerk Interactive Sign-In Component — Perfectly Fit to Container */}
+          {/* Clerk Interactive Sign-In Component — High Contrast Clean Design */}
           <div className="w-full flex justify-center">
             <SignIn
               routing="hash"
               appearance={{
                 variables: {
-                  colorPrimary: '#000000',
-                  colorBackground: 'transparent',
+                  colorPrimary: '#0f172a',
+                  colorBackground: '#ffffff',
                   colorText: '#0f172a',
-                  colorTextSecondary: '#64748b',
-                  colorInputBackground: '#f8fafc',
+                  colorTextOnPrimaryBackground: '#ffffff',
+                  colorTextSecondary: '#475569',
+                  colorInputBackground: '#ffffff',
                   colorInputText: '#0f172a',
+                  colorNeutral: '#0f172a',
                   borderRadius: '0.75rem',
                   fontFamily: 'inherit',
                 },
@@ -190,16 +192,28 @@ export const Login = () => {
                   header: 'hidden',
                   headerTitle: 'hidden',
                   headerSubtitle: 'hidden',
-                  formButtonPrimary: 'w-full bg-black hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl shadow-none transition-all',
-                  socialButtonsBlockButton: 'w-full bg-slate-50 border border-slate-200 text-slate-800 hover:bg-slate-100 rounded-xl transition-all shadow-none py-2.5',
-                  socialButtonsBlockButtonText: 'font-semibold text-slate-800',
-                  formFieldInput: 'w-full bg-slate-50 border border-slate-200 text-slate-900 rounded-xl focus:border-black focus:ring-0 text-sm py-2 px-3',
-                  formFieldLabel: 'text-xs font-semibold text-slate-600',
-                  footerActionLink: 'text-black font-semibold hover:underline',
-                  footerActionText: 'text-xs text-slate-500',
-                  identityPreviewText: 'text-slate-800 font-medium',
-                  dividerLine: 'bg-slate-200',
-                  dividerText: 'text-slate-400 text-[10px] uppercase tracking-wider',
+                  main: 'w-full space-y-3',
+                  form: 'w-full space-y-3',
+                  formButtonPrimary: 'w-full !bg-slate-900 hover:!bg-black !text-white !font-bold py-2.5 rounded-xl shadow-sm transition-all text-sm',
+                  socialButtonsBlockButton: 'w-full !bg-white border !border-slate-300 !text-slate-900 hover:!bg-slate-50 rounded-xl transition-all shadow-sm py-2.5 flex items-center justify-center font-semibold text-xs',
+                  socialButtonsBlockButtonText: '!font-semibold !text-slate-900 text-xs',
+                  socialButtonsProviderIcon: 'w-4 h-4',
+                  formFieldRow: 'w-full',
+                  formFieldLabel: 'text-xs !font-bold !text-slate-800 mb-1 block',
+                  formFieldLabelRow: 'flex justify-between items-center mb-1',
+                  formFieldInput: 'w-full !bg-white border !border-slate-300 !text-slate-900 rounded-xl focus:!border-slate-900 focus:!ring-1 focus:!ring-slate-900 text-sm py-2.5 px-3 placeholder:!text-slate-400 font-medium',
+                  formFieldAction: '!text-slate-700 hover:!text-black text-xs font-semibold hover:underline',
+                  formFieldSuccessText: 'text-xs text-emerald-600 font-medium',
+                  formFieldErrorText: 'text-xs text-rose-600 font-medium mt-1',
+                  footerAction: 'pt-2 flex justify-center text-xs',
+                  footerActionLink: '!text-slate-900 !font-bold hover:underline ml-1',
+                  footerActionText: '!text-slate-600 font-medium text-xs',
+                  identityPreview: '!bg-slate-100 !border !border-slate-200 rounded-xl p-2.5',
+                  identityPreviewText: '!text-slate-900 font-semibold text-xs',
+                  identityPreviewEditButton: '!text-slate-700 hover:!text-black text-xs font-bold',
+                  dividerRow: 'my-3 flex items-center justify-between',
+                  dividerLine: '!bg-slate-300 h-[1px]',
+                  dividerText: '!text-slate-500 text-[11px] font-bold uppercase tracking-wider px-2',
                   footer: 'pt-2',
                 }
               }}
