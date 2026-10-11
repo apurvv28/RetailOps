@@ -4,7 +4,9 @@ import { ClerkProvider } from '@clerk/react';
 import App from './App.jsx';
 import './index.css';
 
-const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || '';
+const CLERK_PUBLISHABLE_KEY =
+  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ||
+  'pk_test_aW5mb3JtZWQtcmVwdGlsZS0yNzI2LmNsZXJrLmFjY291bnRzLmRldiQ';
 
 if (!CLERK_PUBLISHABLE_KEY) {
   console.warn('Missing VITE_CLERK_PUBLISHABLE_KEY – Clerk auth will not work.');
