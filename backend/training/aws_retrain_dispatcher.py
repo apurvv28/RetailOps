@@ -120,20 +120,41 @@ def create_s3_data_snapshot(job_id: str) -> str:
         logger.warning(f"S3 snapshot creation notice: {e}")
         return f"s3://{AWS_S3_BUCKET}/telemetry/raw_telemetry_master.csv"
 
-def trigger_sagemaker_training_job(job_id: str, s3_data_uri: str) -> dict:
+def create_s3_code_snapshot(job_id: str) -> str:
+    """Packages sagemaker_train_entrypoint.py into sourcedir.tar.gz and uploads to S3 for SageMaker."""
+    import io
+    import tarfile
+    try:
+        session = get_boto3_session()
+        s3_client = session.client('s3')
+        entrypoint_path = os.path.join(os.path.dirname(__file__), "sagemaker_train_entrypoint.py")
+        tar_buf = io.BytesIO()
+        with tarfile.open(fileobj=tar_buf, mode="w:gz") as tar:
+            tar.add(entrypoint_path, arcname="sagemaker_train_entrypoint.py")
+        tar_buf.seek(0)
+        clean_job_name = f"krishiloop-retrain-{job_id.replace('_', '-').replace('.', '-')}"[:63].lower()
+        s3_key = f"code/{clean_job_name}/sourcedir.tar.gz"
+        s3_client.upload_fileobj(tar_buf, AWS_S3_BUCKET, s3_key)
+        logger.info(f"Successfully uploaded source code bundle to s3://{AWS_S3_BUCKET}/{s3_key}")
+        return f"s3://{AWS_S3_BUCKET}/{s3_key}"
+    except Exception as e:
+        logger.warning(f"S3 code snapshot notice: {e}")
+        return f"s3://{AWS_S3_BUCKET}/code/test-job/sourcedir.tar.gz"
+
+def trigger_sagemaker_training_job(job_id: str, s3_data_uri: str, s3_code_uri: str = None) -> dict:
     """Submits a native AWS SageMaker Training Job to AWS Cloud infrastructure via boto3."""
     session = get_boto3_session()
     sm_client = session.client('sagemaker')
     
     # Official AWS SageMaker Scikit-Learn container URI mapping by region
     SAGEMAKER_ECR_ACCOUNTS = {
-        "ap-south-1": "991648021394",
+        "ap-south-1": "720646828776",
         "us-east-1": "683313688378",
         "us-east-2": "257758044811",
         "us-west-2": "246618743249",
         "eu-west-1": "141502667606",
     }
-    ecr_account = SAGEMAKER_ECR_ACCOUNTS.get(AWS_DEFAULT_REGION, "991648021394")
+    ecr_account = SAGEMAKER_ECR_ACCOUNTS.get(AWS_DEFAULT_REGION, "720646828776")
     image_uri = f"{ecr_account}.dkr.ecr.{AWS_DEFAULT_REGION}.amazonaws.com/sagemaker-scikit-learn:1.2-1-cpu-py3"
     clean_job_name = f"krishiloop-retrain-{job_id.replace('_', '-').replace('.', '-')}"[:63].lower()
 
@@ -173,6 +194,12 @@ def trigger_sagemaker_training_job(job_id: str, s3_data_uri: str) -> dict:
                 },
                 StoppingCondition={
                     'MaxRuntimeInSeconds': 3600
+                },
+                HyperParameters={
+                    'sagemaker_program': 'sagemaker_train_entrypoint.py',
+                    'sagemaker_submit_directory': s3_code_uri or f"s3://{AWS_S3_BUCKET}/code/{clean_job_name}/sourcedir.tar.gz",
+                    'sagemaker_container_log_level': '20',
+                    'sagemaker_region': AWS_DEFAULT_REGION
                 }
             )
             logger.info(f"SageMaker Training Job created on instance {inst_type}: {response.get('TrainingJobArn')}")
@@ -233,11 +260,12 @@ def dispatch_retraining_job(job_id: str, trigger_source: str, model_keys: list =
     logger.info(f"Dispatched retraining job {job_id} on target environment: {target_env}")
 
     if is_aws_available:
-        # Offload dataset snapshot to AWS S3 & submit SageMaker cloud container job
+        # Offload dataset snapshot and source code bundle to AWS S3 & submit SageMaker cloud container job
         s3_uri = create_s3_data_snapshot(job_id)
+        s3_code_uri = create_s3_code_snapshot(job_id)
         
         try:
-            sm_res = trigger_sagemaker_training_job(job_id, s3_uri)
+            sm_res = trigger_sagemaker_training_job(job_id, s3_uri, s3_code_uri)
             sm_arn = sm_res.get("TrainingJobArn", "N/A")
             logger.info(f"Successfully created AWS SageMaker Cloud Training Job: {sm_arn}")
             
