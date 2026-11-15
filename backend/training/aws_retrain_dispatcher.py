@@ -125,8 +125,16 @@ def trigger_sagemaker_training_job(job_id: str, s3_data_uri: str) -> dict:
     session = get_boto3_session()
     sm_client = session.client('sagemaker')
     
-    # Official AWS SageMaker Scikit-Learn / LightGBM container URI for ap-south-1
-    image_uri = f"683313688378.dkr.ecr.{AWS_DEFAULT_REGION}.amazonaws.com/sagemaker-scikit-learn:1.2-1-cpu-py3"
+    # Official AWS SageMaker Scikit-Learn container URI mapping by region
+    SAGEMAKER_ECR_ACCOUNTS = {
+        "ap-south-1": "991648021394",
+        "us-east-1": "683313688378",
+        "us-east-2": "257758044811",
+        "us-west-2": "246618743249",
+        "eu-west-1": "141502667606",
+    }
+    ecr_account = SAGEMAKER_ECR_ACCOUNTS.get(AWS_DEFAULT_REGION, "991648021394")
+    image_uri = f"{ecr_account}.dkr.ecr.{AWS_DEFAULT_REGION}.amazonaws.com/sagemaker-scikit-learn:1.2-1-cpu-py3"
     clean_job_name = f"krishiloop-retrain-{job_id.replace('_', '-').replace('.', '-')}"[:63].lower()
 
     # Try standard SageMaker training instance types (ml.m5.large, ml.c5.large, ml.m4.xlarge, ml.c4.xlarge)
@@ -184,10 +192,20 @@ def dispatch_retraining_job(job_id: str, trigger_source: str, model_keys: list =
     """
     model_keys = model_keys or ["irrigation-risk", "crop-recommender", "fertilizer-recommender", "yield-predictor"]
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # Save initial RUNNING status to DB
+
+    # Prevent concurrent duplicate retraining jobs
     conn = get_db_connection()
     cursor = conn.cursor()
+    cursor.execute("SELECT job_id, created_at FROM retraining_jobs WHERE status = 'RUNNING' ORDER BY id DESC LIMIT 1")
+    running_row = cursor.fetchone()
+    if running_row:
+        logger.warning(f"Retraining job '{running_row['job_id']}' is already in progress. Rejecting duplicate job '{job_id}'.")
+        conn.close()
+        return {
+            "job_id": running_row["job_id"],
+            "status": "RUNNING",
+            "message": f"A retraining job ({running_row['job_id']}) is already RUNNING. New job rejected to prevent quota exhaustion."
+        }
     
     # Check if AWS credentials work
     is_aws_available = False

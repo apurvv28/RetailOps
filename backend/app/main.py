@@ -208,31 +208,26 @@ def get_cached_drift_detection(limit: int = 300) -> dict:
             "model_drifts": []
         }
 
-def check_drift_and_auto_retrain():
+def monitor_drift_status():
+    """Passive telemetry drift monitor. Drift metrics are computed for dashboard display without auto-spawning retraining jobs."""
     try:
-        from backend.training.aws_retrain_dispatcher import dispatch_retraining_job
         drift_res = get_cached_drift_detection(limit=300)
         data_drift = bool(drift_res.get("drift_detected", False))
         model_drift = bool(drift_res.get("model_drift_detected", False))
-        drifted_cols = int(drift_res.get("drifted_features_count", 0))
         psi_score = float(drift_res.get("overall_drift_score", 0.0))
         model_psi = float(drift_res.get("overall_model_psi", 0.0))
-
-        if (drifted_cols >= 3 or psi_score >= 0.25) or (model_drift and model_psi >= 0.25):
-            import uuid
-            job_id = f"auto_drift_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
-            logger.info(f"Drift threshold breached (Data Drift={data_drift}, Model Drift={model_drift}, Data PSI={psi_score:.4f}, Model PSI={model_psi:.4f}). Triggering auto-retraining job {job_id}...")
-            dispatch_retraining_job(job_id=job_id, trigger_source=f"AUTO_DRIFT_WATCHER(data_psi={psi_score:.2f},model_psi={model_psi:.2f})")
+        if data_drift or model_drift:
+            logger.info(f"Telemetry drift observed (Data PSI: {psi_score:.4f}, Model PSI: {model_psi:.4f}). Retraining queued for Sunday 12:00 AM cron.")
     except Exception as e:
-        logger.warning(f"Auto-retrain drift watcher notice: {e}")
+        logger.warning(f"Drift telemetry check notice: {e}")
 
 def trigger_weekly_sagemaker_retrain():
     try:
         import uuid
         from backend.training.aws_retrain_dispatcher import dispatch_retraining_job
-        job_id = f"weekly_sun6am_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
-        logger.info(f"Triggering scheduled weekly Sunday 06:00 AM SageMaker model retraining: {job_id}...")
-        dispatch_retraining_job(job_id=job_id, trigger_source="CRON_WEEKLY_SUNDAY_06AM")
+        job_id = f"weekly_sun12am_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        logger.info(f"Triggering scheduled weekly Sunday 12:00 AM SageMaker model retraining: {job_id}...")
+        dispatch_retraining_job(job_id=job_id, trigger_source="CRON_WEEKLY_SUNDAY_12AM")
     except Exception as e:
         logger.error(f"Weekly scheduled retraining job notice: {e}")
 
@@ -252,16 +247,17 @@ def startup():
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.cron import CronTrigger
         scheduler = BackgroundScheduler(daemon=True)
-        scheduler.add_job(check_drift_and_auto_retrain, 'interval', minutes=15)
-        # Weekly SageMaker Retraining Cron: Every Sunday at 6:00 AM (0 6 * * 0)
+        # Passive drift cache refresher (every 30 mins)
+        scheduler.add_job(monitor_drift_status, 'interval', minutes=30)
+        # Weekly SageMaker Retraining Cron: Every Sunday at 12:00 AM Midnight (0 0 * * 0)
         scheduler.add_job(
             trigger_weekly_sagemaker_retrain,
-            CronTrigger(day_of_week='sun', hour=6, minute=0),
+            CronTrigger(day_of_week='sun', hour=0, minute=0),
             id="weekly_sagemaker_retrain_cron",
             replace_existing=True
         )
         scheduler.start()
-        logger.info("APScheduler: Registered drift watcher (15m) and weekly Sunday 06:00 AM SageMaker retraining job (Cron: 0 6 * * 0).")
+        logger.info("APScheduler: Registered passive drift monitor and weekly Sunday 12:00 AM SageMaker retraining job (Cron: 0 0 * * 0).")
     except Exception as sched_err:
         logger.warning(f"Background scheduler startup notice: {sched_err}")
 

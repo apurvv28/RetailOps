@@ -39,6 +39,12 @@ pip install -q -r backend/requirements.txt
 # 3. Verify Database
 python3 backend/schema/init_db.py
 
+# 3.5 Install/Update Weekly Retraining Crontab (Sunday 12:00 AM)
+if [ -f "scripts/crontab.txt" ]; then
+  echo "Updating weekly retraining crontab..."
+  crontab scripts/crontab.txt || true
+fi
+
 # 4. Restart Systemd Service or Docker Container
 if systemctl is-active --quiet krishiloop-backend; then
   echo "Restarting krishiloop-backend systemd service..."

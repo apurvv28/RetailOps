@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Weekly Cron Retraining Runner for KrishiLoop
-Executed every week on Sunday at 06:00 AM IST (cron: 0 6 * * 0)
+Executed every week on Sunday at 12:00 AM Midnight (cron: 0 0 * * 0)
 Synchronizes telemetry to AWS S3 and triggers AWS SageMaker model retraining.
 """
 
@@ -29,14 +29,14 @@ logger = logging.getLogger("krishiloop.weekly_cron")
 
 def run_weekly_retraining():
     logger.info("==================================================================")
-    logger.info(" KrishiLoop Weekly SageMaker Retraining Cron (Sunday 06:00 AM)   ")
+    logger.info(" KrishiLoop Weekly SageMaker Retraining Cron (Sunday 12:00 AM)   ")
     logger.info(f" Execution Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info("==================================================================")
 
     from backend.training.aws_retrain_dispatcher import dispatch_retraining_job
 
-    job_id = f"weekly_sun6am_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
-    trigger_source = "CRON_WEEKLY_SUNDAY_06AM"
+    job_id = f"weekly_sun12am_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    trigger_source = "CRON_WEEKLY_SUNDAY_12AM"
 
     try:
         res = dispatch_retraining_job(job_id=job_id, trigger_source=trigger_source)
