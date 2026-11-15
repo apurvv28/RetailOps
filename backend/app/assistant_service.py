@@ -152,7 +152,7 @@ def chat_with_krishimitra(
         client = OpenAI(
             base_url="https://integrate.api.nvidia.com/v1",
             api_key=api_key,
-            timeout=8.0,
+            timeout=3.5,
             max_retries=0
         )
 
@@ -163,7 +163,7 @@ def chat_with_krishimitra(
             temperature=0.5,
             top_p=1,
             max_tokens=512,
-            timeout=8.0,
+            timeout=3.5,
             extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             stream=False
         )

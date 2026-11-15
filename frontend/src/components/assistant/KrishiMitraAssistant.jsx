@@ -19,6 +19,7 @@ import {
   Check 
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
+import api from '../../services/api';
 
 const SUGGESTIONS = {
   en: [
@@ -161,17 +162,13 @@ export const KrishiMitraAssistant = () => {
       // Build conversation history for context
       const history = messages.slice(-4).map(m => ({ role: m.role, content: m.content }));
 
-      const res = await fetch('http://127.0.0.1:8000/api/assistant/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: textToSend,
-          language: lang,
-          history: history
-        })
+      const res = await api.post('/api/assistant/chat', {
+        message: textToSend,
+        language: lang,
+        history: history
       });
 
-      const data = await res.json();
+      const data = res.data;
       const reply = data.reply || "कृषि मित्र से जुड़ने में असमर्थ। कृपया पुनः प्रयास करें।";
 
       const botMsg = {

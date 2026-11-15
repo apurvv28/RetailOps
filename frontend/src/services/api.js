@@ -45,6 +45,11 @@ export const AuthService = {
     api.get('/api/auth/me').then(r => r.data),
 };
 
+export const AssistantService = {
+  chat: (message, language = 'en', history = []) =>
+    api.post('/api/assistant/chat', { message, language, history }).then(r => r.data),
+};
+
 export const FarmerService = {
   getProfile: () =>
     api.get('/api/farmer/profile').then(r => r.data),
