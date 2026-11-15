@@ -220,19 +220,28 @@ def dispatch_retraining_job(job_id: str, trigger_source: str, model_keys: list =
     model_keys = model_keys or ["irrigation-risk", "crop-recommender", "fertilizer-recommender", "yield-predictor"]
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Prevent concurrent duplicate retraining jobs
+    # Prevent concurrent duplicate retraining jobs (active within 30-minute window)
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT job_id, created_at FROM retraining_jobs WHERE status = 'RUNNING' ORDER BY id DESC LIMIT 1")
     running_row = cursor.fetchone()
-    if running_row:
-        logger.warning(f"Retraining job '{running_row['job_id']}' is already in progress. Rejecting duplicate job '{job_id}'.")
-        conn.close()
-        return {
-            "job_id": running_row["job_id"],
-            "status": "RUNNING",
-            "message": f"A retraining job ({running_row['job_id']}) is already RUNNING. New job rejected to prevent quota exhaustion."
-        }
+    if running_row and running_row["created_at"]:
+        try:
+            job_created_dt = datetime.strptime(str(running_row["created_at"]), "%Y-%m-%d %H:%M:%S")
+            age_seconds = (datetime.now() - job_created_dt).total_seconds()
+        except Exception:
+            age_seconds = 999999
+        if age_seconds < 1800:
+            logger.warning(f"Retraining job '{running_row['job_id']}' is currently active ({int(age_seconds)}s ago). Rejecting duplicate job '{job_id}'.")
+            conn.close()
+            return {
+                "job_id": running_row["job_id"],
+                "status": "RUNNING",
+                "message": f"A retraining job ({running_row['job_id']}) is actively in progress. New job rejected to prevent quota exhaustion."
+            }
+        else:
+            cursor.execute("UPDATE retraining_jobs SET status = 'COMPLETED' WHERE job_id = ?", (running_row["job_id"],))
+            conn.commit()
     
     # Check if AWS credentials work
     is_aws_available = False
