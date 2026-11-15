@@ -64,6 +64,39 @@ def save_user(user_data: dict) -> dict:
     table.put_item(Item=item)
     return item
 
+def get_farmer_profile(user_id: str) -> dict:
+    """Fetch farmer profile from DynamoDB."""
+    dynamodb = get_dynamodb_resource()
+    table = dynamodb.Table(PROFILES_TABLE_NAME)
+    try:
+        res = table.get_item(Key={"user_id": str(user_id)})
+        return res.get("Item")
+    except Exception as e:
+        logger.warning(f"DynamoDB get profile error: {e}")
+        return None
+
+def save_farmer_profile(user_id: str, profile_data: dict) -> dict:
+    """Save or update farmer profile in DynamoDB."""
+    dynamodb = get_dynamodb_resource()
+    table = dynamodb.Table(PROFILES_TABLE_NAME)
+    
+    item = {
+        "user_id": str(user_id),
+        "farm_name": profile_data.get("farm_name", "My Farm"),
+        "gps_latitude": str(profile_data.get("gps_latitude", "18.5204")),
+        "gps_longitude": str(profile_data.get("gps_longitude", "73.8567")),
+        "region": profile_data.get("region", "Maharashtra"),
+        "current_crops": profile_data.get("current_crops", "Paddy, Cotton"),
+        "sensors_config": profile_data.get("sensors_config", '{"soil_moisture_sensor": true, "npk_sensor": true, "weather_station": true}'),
+        "updated_at": profile_data.get("updated_at", "")
+    }
+    try:
+        table.put_item(Item=item)
+        return item
+    except Exception as e:
+        logger.error(f"DynamoDB put profile error: {e}")
+        raise e
+
 def get_or_create_farmer_profile(user_id: str, name: str) -> dict:
     dynamodb = get_dynamodb_resource()
     table = dynamodb.Table(PROFILES_TABLE_NAME)

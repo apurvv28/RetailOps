@@ -946,39 +946,58 @@ def get_farmer_sensor_status(current_user: dict = Depends(require_farmer)):
 @app.get("/api/farmer/profile", response_model=FarmerProfileResponse)
 def get_farmer_profile(current_user: dict = Depends(require_farmer)):
     user_id = current_user["id"]
-    is_sqlite = DATABASE_URL.startswith("sqlite://")
-    conn = get_db_connection()
-
     profile = None
-    try:
-        if is_sqlite:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT user_id, farm_name, gps_latitude, gps_longitude, region, current_crops, sensors_config, updated_at FROM farmer_profiles WHERE user_id = ?",
-                (user_id,)
-            )
-            row = cursor.fetchone()
-            if row:
-                profile = dict(row)
-            conn.close()
-        else:
-            res = conn.execute(
-                text("SELECT user_id, farm_name, gps_latitude, gps_longitude, region, current_crops, sensors_config, updated_at FROM farmer_profiles WHERE user_id = :uid"),
-                {"uid": user_id}
-            ).fetchone()
-            conn.close()
-            if res:
-                profile = {
-                    "user_id": res[0], "farm_name": res[1], "gps_latitude": float(res[2]),
-                    "gps_longitude": float(res[3]), "region": res[4], "current_crops": res[5],
-                    "sensors_config": res[6], "updated_at": str(res[7])
-                }
 
+    # 1. AWS DynamoDB Primary Profile Lookup
+    try:
+        try:
+            from backend.app.dynamo_db import get_farmer_profile as get_dynamo_profile
+        except ImportError:
+            from app.dynamo_db import get_farmer_profile as get_dynamo_profile
+        
+        d_prof = get_dynamo_profile(user_id)
+        if d_prof:
+            profile = d_prof
+    except Exception as d_err:
+        logger.warning(f"DynamoDB get profile notice: {d_err}")
+
+    # 2. Local database fallback/lookup if not found in DynamoDB
+    if not profile:
+        is_sqlite = DATABASE_URL.startswith("sqlite://")
+        conn = get_db_connection()
+        try:
+            if is_sqlite:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT user_id, farm_name, gps_latitude, gps_longitude, region, current_crops, sensors_config, updated_at FROM farmer_profiles WHERE user_id = ?",
+                    (user_id,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    profile = dict(row)
+                conn.close()
+            else:
+                res = conn.execute(
+                    text("SELECT user_id, farm_name, gps_latitude, gps_longitude, region, current_crops, sensors_config, updated_at FROM farmer_profiles WHERE user_id = :uid"),
+                    {"uid": user_id}
+                ).fetchone()
+                conn.close()
+                if res:
+                    profile = {
+                        "user_id": res[0], "farm_name": res[1], "gps_latitude": float(res[2]),
+                        "gps_longitude": float(res[3]), "region": res[4], "current_crops": res[5],
+                        "sensors_config": res[6], "updated_at": str(res[7])
+                    }
+        except Exception as e:
+            if hasattr(conn, "close"): conn.close()
+            logger.warning(f"Local profile fallback notice: {e}")
+
+    try:
         if not profile:
             # Create default profile
             profile = {
                 "user_id": user_id,
-                "farm_name": f"{current_user['name']}'s Farm",
+                "farm_name": f"{current_user.get('name', 'Farmer')}'s Farm",
                 "gps_latitude": 18.5204,
                 "gps_longitude": 73.8567,
                 "region": "Maharashtra",
@@ -997,10 +1016,9 @@ def get_farmer_profile(current_user: dict = Depends(require_farmer)):
             region=profile["region"],
             current_crops=profile["current_crops"],
             sensors_config=sensors_dict,
-            updated_at=str(profile["updated_at"])
+            updated_at=str(profile.get("updated_at", ""))
         )
     except Exception as e:
-        if hasattr(conn, "close"): conn.close()
         logger.error(f"Failed to fetch farmer profile for user_id={current_user.get('id')}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch profile: {e}")
 
@@ -1010,6 +1028,26 @@ def update_farmer_profile(req: FarmerProfileRequest, current_user: dict = Depend
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     sensors_json = json.dumps(req.sensors_config)
 
+    # 1. AWS DynamoDB Primary Profile Update
+    try:
+        try:
+            from backend.app.dynamo_db import save_farmer_profile as save_dynamo_profile
+        except ImportError:
+            from app.dynamo_db import save_farmer_profile as save_dynamo_profile
+
+        save_dynamo_profile(user_id, {
+            "farm_name": req.farm_name,
+            "gps_latitude": str(req.gps_latitude),
+            "gps_longitude": str(req.gps_longitude),
+            "region": req.region,
+            "current_crops": req.current_crops,
+            "sensors_config": sensors_json,
+            "updated_at": now_str
+        })
+    except Exception as d_err:
+        logger.warning(f"DynamoDB profile save notice: {d_err}")
+
+    # 2. Local database sync
     is_sqlite = DATABASE_URL.startswith("sqlite://")
     conn = get_db_connection()
 
@@ -1836,4 +1874,4 @@ def assistant_chat(request: AssistantChatRequest):
             "model": "error-handler",
             "timestamp": datetime.now().isoformat()
         }
-
+
