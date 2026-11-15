@@ -18,6 +18,9 @@ fi
 echo "Deploying KrishiLoop Backend on EC2: $APP_DIR"
 cd "$APP_DIR"
 
+# Ensure git safe.directory exception exists
+git config --global --add safe.directory "$APP_DIR" || true
+
 # 1. Fetch latest commits from GitHub
 echo "Pulling latest code from origin/main..."
 git fetch origin main
@@ -30,8 +33,8 @@ if [ ! -d "backend/.venv" ]; then
 fi
 
 source backend/.venv/bin/activate
-pip install --upgrade pip
-pip install -r backend/requirements.txt
+pip install --upgrade pip -q
+pip install -q -r backend/requirements.txt
 
 # 3. Verify Database
 python3 backend/schema/init_db.py
